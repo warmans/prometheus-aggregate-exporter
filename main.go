@@ -17,7 +17,7 @@ import (
 
 var (
 	configPath = flag.String("config", "config.yml", "Path to config YAML file.")
-	verbose = flag.Bool("verbose", false, "Log more information")
+	verbose    = flag.Bool("verbose", false, "Log more information")
 )
 
 type Config struct {
@@ -46,7 +46,7 @@ func main() {
 	}
 
 	aggregator := &Aggregator{HTTP: &http.Client{Timeout: 5 * time.Second}}
-	go aggregator.Start(config.Targets, time.Duration(config.Interval) * time.Second)
+	go aggregator.Start(config.Targets, time.Duration(config.Interval)*time.Second)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", func(rw http.ResponseWriter, r *http.Request) {
@@ -119,7 +119,6 @@ func (f *Aggregator) fetchAll(targets []string) {
 
 			wait.Done()
 		}(targetKey, target)
-
 	}
 	wait.Wait()
 }
