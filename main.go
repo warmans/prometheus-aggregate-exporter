@@ -33,6 +33,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to open config file at path %s due to error: %s", *configPath, err.Error())
 	}
+	defer configFile.Close()
 
 	configData, err := ioutil.ReadAll(configFile)
 	if err != nil {
