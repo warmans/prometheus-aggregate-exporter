@@ -100,16 +100,21 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 			select {
 			case result := <-resultChan:
 				numResuts++
+
 				if result.Error != nil {
 					log.Printf("Fetch error: %s", result.Error.Error())
 					continue
 				}
+
 				_, err := io.Copy(output, result.Payload)
 				if err != nil {
 					log.Printf("Copy error: %s", err.Error())
 				}
-				result.Payload.Close()
-				output.Write([]byte("\n"))
+
+				err = result.Payload.Close()
+				if err != nil {
+					log.Printf("Result body close error: %s", err.Error())
+				}
 
 				if *verbose {
 					log.Printf("OK: %s was refreshed in %.3f seconds", result.URL, result.SecondsTaken)
