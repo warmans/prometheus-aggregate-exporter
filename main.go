@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
+	"strconv"
 	"time"
 )
 
@@ -21,12 +21,13 @@ var (
 )
 
 type Config struct {
-	Server   struct{ Bind string }
-	Interval int
-	Targets  []string
+	Server  struct{ Bind string }
+	Timeout int
+	Targets []string
 }
 
 func main() {
+
 	flag.Parse()
 
 	configFile, err := os.Open(*configPath)
@@ -45,89 +46,89 @@ func main() {
 		log.Fatalf("Failed to unmarshal YAML data in config: %s", err.Error())
 	}
 
-	aggregator := &Aggregator{HTTP: &http.Client{Timeout: 5 * time.Second}}
-	go aggregator.Start(config.Targets, time.Duration(config.Interval)*time.Second)
+	aggregator := &Aggregator{HTTP: &http.Client{Timeout: time.Duration(config.Timeout) * time.Millisecond}}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", func(rw http.ResponseWriter, r *http.Request) {
-		aggregator.Export(rw)
+		defer r.Body.Close()
+		err := r.ParseForm()
+		if err != nil {
+			http.Error(rw, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		if t := r.Form.Get("t"); t != "" {
+			targetKey, err := strconv.Atoi(t)
+			if err != nil || len(config.Targets)-1 < targetKey {
+				http.Error(rw, "Bad Request", http.StatusBadRequest)
+				return
+			}
+			aggregator.Aggregate([]string{config.Targets[targetKey]}, rw)
+		} else {
+			aggregator.Aggregate(config.Targets, rw)
+		}
 	})
 
 	log.Printf("Starting server on %s...", config.Server.Bind)
 	log.Fatal(http.ListenAndServe(config.Server.Bind, mux))
 }
 
+type Result struct {
+	URL          string
+	SecondsTaken float64
+	Payload      io.ReadCloser
+	Error        error
+}
+
 type Aggregator struct {
-	HTTP          *http.Client
-	aggregateData [][]byte
-	sync.RWMutex
+	HTTP *http.Client
 }
 
-func (f *Aggregator) Export(w io.Writer) {
-	if f.aggregateData == nil {
-		return
-	}
-	f.RLock()
-	for _, d := range f.aggregateData {
-		if len(d) > 0 {
-			w.Write(d)
-			w.Write([]byte("\n"))
-		}
-	}
-	f.RUnlock()
-}
+func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 
-func (f *Aggregator) Start(targets []string, interval time.Duration) {
+	resultChan := make(chan *Result, 100)
 
-	log.Print("Target list:")
-	for tk, t := range targets {
-		log.Printf("%d. %s", tk, t)
+	for _, target := range targets {
+		go f.fetch(target, resultChan)
 	}
 
-	f.aggregateData = make([][]byte, len(targets), len(targets))
-
-	//initial refresh
-	f.fetchAll(targets)
-
-	//start updating
-	ticker := time.NewTicker(interval)
-	for {
-		select {
-		case <-ticker.C:
-			f.fetchAll(targets)
-		}
-	}
-}
-
-func (f *Aggregator) fetchAll(targets []string) {
-	wait := sync.WaitGroup{}
-	for targetKey, target := range targets {
-		wait.Add(1)
-		go func(key int, url string) {
-			startTime := time.Now()
-			res, err := f.fetch(url)
-			if err == nil {
-				f.Lock()
-				f.aggregateData[key] = res
-				f.Unlock()
-				if *verbose {
-					log.Printf("OK: %s was refreshed in %.3f seconds", url, time.Since(startTime).Seconds())
-				}
-			} else {
-				log.Printf("ERROR: %s", err.Error())
+	func(numTargets int, resultChan chan *Result) {
+		numResuts := 0
+		for {
+			if numTargets == numResuts {
+				return
 			}
+			select {
+			case result := <-resultChan:
+				numResuts++
+				if result.Error != nil {
+					log.Printf("Fetch error: %s", result.Error.Error())
+					continue
+				}
+				_, err := io.Copy(output, result.Payload)
+				if err != nil {
+					log.Printf("Copy error: %s", err.Error())
+				}
+				result.Payload.Close()
+				output.Write([]byte("\n"))
 
-			wait.Done()
-		}(targetKey, target)
-	}
-	wait.Wait()
+				if *verbose {
+					log.Printf("OK: %s was refreshed in %.3f seconds", result.URL, result.SecondsTaken)
+				}
+			}
+		}
+	}(len(targets), resultChan)
 }
 
-func (f *Aggregator) fetch(target string) ([]byte, error) {
+func (f *Aggregator) fetch(target string, resultChan chan *Result) {
+
+	startTime := time.Now()
 	res, err := f.HTTP.Get(target)
-	if err != nil {
-		return []byte(""), fmt.Errorf("Failed to fetch URL %s due to error: %s", target, err.Error())
+	result := &Result{URL: target, SecondsTaken: time.Since(startTime).Seconds(), Error: nil}
+	if res != nil {
+		result.Payload = res.Body
 	}
-	defer res.Body.Close()
-	return ioutil.ReadAll(res.Body)
+	if err != nil {
+		result.Error = fmt.Errorf("Failed to fetch URL %s due to error: %s", target, err.Error())
+	}
+	resultChan <- result
 }
