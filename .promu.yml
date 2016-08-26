@@ -3,6 +3,7 @@ repository:
 build:
     flags: -a -tags 'netgo static_build'
     ldflags:
+      -X main.Version={{.Version}}
 tarball:
     files:
 crossbuild:

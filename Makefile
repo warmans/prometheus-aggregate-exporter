@@ -19,6 +19,7 @@ crossbuild: prerequisites
 	$(PROMU) crossbuild
 	$(PROMU) crossbuild tarballs
 
+.PHONY: release
 release:
 	#requires GITHUB_TOKEN environment variable with valid token and an
 	#already created release on github

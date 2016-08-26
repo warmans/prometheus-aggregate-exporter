@@ -16,8 +16,13 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.yml", "Path to config YAML file.")
-	verbose    = flag.Bool("verbose", false, "Log more information")
+	Version    = "unknown"
+)
+
+var (
+	configPathFlag = flag.String("config", "config.yml", "Path to config YAML file.")
+	verboseFlag = flag.Bool("verbose", false, "Log more information")
+	versionFlag = flag.Bool("version", false, "Show version and exit")
 )
 
 type Config struct {
@@ -30,15 +35,20 @@ func main() {
 
 	flag.Parse()
 
-	configFile, err := os.Open(*configPath)
+	if *versionFlag {
+		fmt.Print(Version)
+		os.Exit(0)
+	}
+
+	configFile, err := os.Open(*configPathFlag)
 	if err != nil {
-		log.Fatalf("Failed to open config file at path %s due to error: %s", *configPath, err.Error())
+		log.Fatalf("Failed to open config file at path %s due to error: %s", *configPathFlag, err.Error())
 	}
 	defer configFile.Close()
 
 	configData, err := ioutil.ReadAll(configFile)
 	if err != nil {
-		log.Fatalf("Failed to read config file at path %s due to error: %s", *configPath, err.Error())
+		log.Fatalf("Failed to read config file at path %s due to error: %s", *configPathFlag, err.Error())
 	}
 
 	config := &Config{}
@@ -116,7 +126,7 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 					log.Printf("Result body close error: %s", err.Error())
 				}
 
-				if *verbose {
+				if *verboseFlag {
 					log.Printf("OK: %s was refreshed in %.3f seconds", result.URL, result.SecondsTaken)
 				}
 			}
