@@ -1,5 +1,5 @@
 GO    := GO15VENDOREXPERIMENT=1 go
-PROMU ?= $(GOPATH)/bin/promu
+PROMU ?= $${GOPATH}/bin/promu
 
 PREFIX  ?= $(shell pwd)
 BIN_DIR ?= $(shell pwd)
