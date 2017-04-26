@@ -8,21 +8,25 @@ import (
 
 	"gopkg.in/yaml.v2"
 
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
 var (
-	Version    = "unknown"
+	Version = "unknown"
 )
 
 var (
 	configPathFlag = flag.String("config", "config.yml", "Path to config YAML file.")
-	verboseFlag = flag.Bool("verbose", false, "Log more information")
-	versionFlag = flag.Bool("version", false, "Show version and exit")
+	verboseFlag    = flag.Bool("verbose", false, "Log more information")
+	versionFlag    = flag.Bool("version", false, "Show version and exit")
+	stripComments  = flag.Bool("strip", false, "remove any comment lines in aggregated output")
 )
 
 type Config struct {
@@ -140,7 +144,23 @@ func (f *Aggregator) fetch(target string, resultChan chan *Result) {
 	res, err := f.HTTP.Get(target)
 	result := &Result{URL: target, SecondsTaken: time.Since(startTime).Seconds(), Error: nil}
 	if res != nil {
-		result.Payload = res.Body
+		if !*stripComments {
+			result.Payload = res.Body
+		} else {
+			var buff *bytes.Buffer
+			scanner := bufio.NewScanner(res.Body)
+			for scanner.Scan() {
+				if strings.HasPrefix(scanner.Text(), "#") {
+					continue
+				}
+				if _, err := buff.WriteString(scanner.Text() + "\n"); err != nil {
+					result.Error = fmt.Errorf("failed writing deduplicated data to buffer: %s", err)
+					resultChan <- result
+					return
+				}
+			}
+			result.Payload = ioutil.NopCloser(buff)
+		}
 	}
 	if err != nil {
 		result.Error = fmt.Errorf("Failed to fetch URL %s due to error: %s", target, err.Error())
