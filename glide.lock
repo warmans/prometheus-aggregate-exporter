@@ -1,8 +1,24 @@
-hash: e04594e2b6fcae1028befdf96e159b25c0a2639cc72eb046460094fa95cb6b4c
-updated: 2016-07-14T19:24:53.044987906+02:00
+hash: 9ad826b36a1c590807ac502d31efddc979622140a424bd03d3fdf055c9c5a67e
+updated: 2017-04-27T20:08:02.731796344+02:00
 imports:
-- name: github.com/go-yaml/yaml.git
-  version: a83829b6f1293c91addabc89d0571c246397bbf4
+- name: github.com/golang/protobuf
+  version: 2bba0603135d7d7f5cb73b2125beeda19c09f4ef
+  subpackages:
+  - proto
+- name: github.com/matttproud/golang_protobuf_extensions
+  version: c12348ce28de40eed0136aa2b644d0ee0650e56c
+  subpackages:
+  - pbutil
+- name: github.com/prometheus/client_model
+  version: 6f3806018612930941127f2a7c6c453ba2c527d2
+  subpackages:
+  - go
+- name: github.com/prometheus/common
+  version: 13ba4ddd0caa9c28ca7b7bffe1dfa9ed8d5ef207
+  subpackages:
+  - expfmt
+  - internal/bitbucket.org/ww/goautoneg
+  - model
 - name: gopkg.in/yaml.v2
-  version: a83829b6f1293c91addabc89d0571c246397bbf4
+  version: cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b
 devImports: []
