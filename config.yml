@@ -2,7 +2,5 @@ server:
   bind: ":8080"
 timeout: 1000 #ms
 targets:
-  - "http://localhost:9100/metrics"
-  - "http://localhost:9100/metrics"
-  - "http://localhost:9100/metrics"
-  - "http://localhost:9100/metrics"
+  - "http://localhost/prom.txt"
+  - "http://localhost/prom2.txt"

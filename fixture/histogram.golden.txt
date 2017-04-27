@@ -1,0 +1,10 @@
+# HELP http_request_duration_seconds A histogram of the request duration.
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{ae_source="foo",le="0.05"} 24054
+http_request_duration_seconds_bucket{ae_source="foo",le="0.1"} 33444
+http_request_duration_seconds_bucket{ae_source="foo",le="0.2"} 100392
+http_request_duration_seconds_bucket{ae_source="foo",le="0.5"} 129389
+http_request_duration_seconds_bucket{ae_source="foo",le="1"} 133988
+http_request_duration_seconds_bucket{ae_source="foo",le="+Inf"} 144320
+http_request_duration_seconds_sum{ae_source="foo"} 53423
+http_request_duration_seconds_count{ae_source="foo"} 144320
