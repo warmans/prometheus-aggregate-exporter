@@ -26,7 +26,7 @@ var (
 	configPathFlag = flag.String("config", "config.yml", "Path to config YAML file.")
 	verboseFlag    = flag.Bool("verbose", false, "Log more information")
 	versionFlag    = flag.Bool("version", false, "Show version and exit")
-	appendLabel    = flag.Bool("label", false, "Add a label to metrics to show their origin target")
+	appendLabel    = flag.Bool("label", true, "Add a label to metrics to show their origin target")
 	labelName      = flag.String("label.name", "ae_source", "Label name to use if a target name label is appended to metrics")
 )
 
