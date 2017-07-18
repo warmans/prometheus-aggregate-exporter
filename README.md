@@ -13,10 +13,9 @@ exposed endpoints.
 ```
 server:
   bind: ":8080"
-interval: 10 #seconds
+timeout: 1000 #ms
 targets:
   - "http://localhost:8081/metrics"
   - "http://localhost:8081/metrics"
-
 ```
 
