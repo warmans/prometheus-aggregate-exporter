@@ -1,0 +1,11 @@
+version: '2'
+services:
+  aggregate-exporter:
+    image: "warmans/aggregate-exporter:latest"
+    ports:
+      - 8080:8080
+    environment:
+      CONFIG: "/etc/agg-exporter/config.yml"
+      VERBOSE: "true"
+    volumes:
+      - "./config:/etc/agg-exporter"
