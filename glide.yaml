@@ -1,4 +1,0 @@
-package: github.com/warmans/prometheus-aggregate-exporter
-import:
-- package: gopkg.in/yaml.v2
-- package: github.com/prometheus/common

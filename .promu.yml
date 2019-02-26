@@ -1,5 +1,5 @@
 repository:
-    path: github.com/warmans/prometheus-aggregate-exporter
+    path: github.com/warmans/prometheus-aggregate-exporter/cmd
 build:
     flags: -a -tags 'netgo static_build'
     ldflags:
