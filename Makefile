@@ -7,36 +7,16 @@ PROMU ?= $(GOPATH)/bin/promu
 
 GIT_TAG := $(shell git describe --tags --exact-match 2>/dev/null || echo "unknown")
 
-BUILD_PREFIX  ?= $(shell pwd)/bin
-BIN_DIR ?= $(shell pwd)
+BIN_DIR ?= $(shell pwd)/bin
 
 PROJECT_OWNER ?= warmans
 PROJECT_NAME ?= aggregate-exporter
 DOCKER_NAME ?= $(PROJECT_OWNER)/$(PROJECT_NAME)
 
-.PHONY: check
-check:
-	which promu 1> /dev/null || go install github.com/prometheus/promu
-	echo "${GIT_TAG}" > VERSION
-
 .PHONY: build
-build: check
+build:
 	echo ">> building binaries"
-	$(PROMU) build --prefix $(BUILD_PREFIX)
-
-.PHONY: crossbuild
-crossbuild: check
-	echo ">> crossbuilding binaries"
-	$(PROMU) crossbuild
-	$(PROMU) crossbuild tarballs
-
-.PHONY: release
-release:
-ifndef GITLAB_TOKEN
-	$(error GITLAB_TOKEN is not set)
-endif
-	#requires GITHUB_TOKEN environment variable and a tag already pushed to github
-	$(PROMU) release
+	go build -o ${BIN_DIR}/prometheus-aggregate-exporter -ldflags "-X main.Version=${GIT_TAG}" ./cmd
 
 # Packaging
 #-----------------------------------------------------------------------
