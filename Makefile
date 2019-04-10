@@ -27,7 +27,7 @@ docker-build:
 
 .PHONY: buildah-f30
 buildah-f30:
-	buildah build-using-dockerfile -t $(DOCKER_NAME):$(GIT_TAG) -t $(DOCKER_NAME):latest -f Dockerfile.f30-mini . && echo ">> built $(DOCKER_NAME):$(GIT_TAG) and $(DOCKER_NAME):latest"
+	buildah build-using-dockerfile -t $(DOCKER_NAME)-f30:$(GIT_TAG) -t $(DOCKER_NAME)-f30:latest -f Dockerfile.f30-mini . && echo ">> built $(DOCKER_NAME):$(GIT_TAG) and $(DOCKER_NAME):latest"
 
 .PHONY: docker-publish
 docker-publish:
@@ -35,7 +35,7 @@ docker-publish:
 
 .PHONY: buildah-publish
 buildah-publish:
-	buildah push $(DOCKER_NAME):$(GIT_TAG) docker://quay.io/$(DOCKER_NAME):$(GIT_TAG) && echo ">> published $(DOCKER_NAME):$(GIT_TAG)"
+	buildah push $(DOCKER_NAME)-f30:$(GIT_TAG) docker://quay.io/$(DOCKER_NAME)-f30:$(GIT_TAG) && echo ">> published $(DOCKER_NAME):$(GIT_TAG)"
 
 docker-run:
 	docker run -it
