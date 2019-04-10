@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
-	"crypto/tls"
 	"strconv"
 	"time"
 
@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 )
 
+//Config is used to store the configuration of this program
 type Config struct {
 	Server struct {
 		Bind string
@@ -26,15 +27,17 @@ type Config struct {
 }
 
 var (
+	//Version if the version of this program
 	Version = "unknown"
 
-	verboseFlag         *bool
-	versionFlag         *bool
-	targetLabelsEnabled *bool
-	targetLabelName     *string
-	serverBind          *string
-	targetScrapeTimeout *int
-	targets             *string
+	verboseFlag            *bool
+	versionFlag            *bool
+	targetLabelsEnabled    *bool
+	targetLabelName        *string
+	serverBind             *string
+	targetScrapeTimeout    *int
+	targets                *string
+	insecureSkipVerifyFlag *bool
 )
 
 func init() {
@@ -46,6 +49,8 @@ func init() {
 	targets = stringFlag(flag.CommandLine, "targets", "", "comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics")
 	targetLabelsEnabled = boolFlag(flag.CommandLine, "targets.label", true, "Add a label to metrics to show their origin target")
 	targetLabelName = stringFlag(flag.CommandLine, "targets.label.name", "ae_source", "Label name to use if a target name label is appended to metrics")
+
+	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "disabled verification of TLS certificates")
 
 	flag.Parse()
 }
@@ -72,7 +77,10 @@ func main() {
 	}
 
 	// enable InsecureSkipVerify
-	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	if *insecureSkipVerifyFlag {
+		log.Printf("disabled verification of TLS certificates")
+		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
 
 	aggregator := &Aggregator{HTTP: &http.Client{Timeout: time.Duration(config.Timeout) * time.Millisecond}}
 
