@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"crypto/tls"
 	"strconv"
 	"time"
 
@@ -69,6 +70,9 @@ func main() {
 	if len(config.Targets) < 1 {
 		log.Fatal("No targets configured")
 	}
+
+	// enable InsecureSkipVerify
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
 	aggregator := &Aggregator{HTTP: &http.Client{Timeout: time.Duration(config.Timeout) * time.Millisecond}}
 
