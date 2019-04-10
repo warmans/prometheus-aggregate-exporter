@@ -50,7 +50,7 @@ func init() {
 	targetLabelsEnabled = boolFlag(flag.CommandLine, "targets.label", true, "Add a label to metrics to show their origin target")
 	targetLabelName = stringFlag(flag.CommandLine, "targets.label.name", "ae_source", "Label name to use if a target name label is appended to metrics")
 
-	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "disabled verification of TLS certificates")
+	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "Disable verification of TLS certificates")
 
 	flag.Parse()
 }
