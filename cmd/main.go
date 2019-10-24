@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"net"
+  	"syscall"
 
 	"github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -43,7 +45,7 @@ var (
 func init() {
 	verboseFlag = boolFlag(flag.CommandLine, "verbose", false, "Log more information")
 	versionFlag = boolFlag(flag.CommandLine, "version", false, "Show version and exit")
-	serverBind = stringFlag(flag.CommandLine, "server.bind", ":8080", "Bind the HTTP server to this address e.g. 127.0.0.1:8080 or just :8080")
+	serverBind = stringFlag(flag.CommandLine, "server.bind", ":8080", "Bind the HTTP server to this address e.g. 127.0.0.1:8080 or just :8080. For unix socket use unix:/path/to/file.sock")
 
 	targetScrapeTimeout = intFlag(flag.CommandLine, "targets.scrape.timeout", 1000, "If a target metrics pages does not responde with this many miliseconds then timeout")
 	targets = stringFlag(flag.CommandLine, "targets", "", "comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values")
@@ -108,7 +110,28 @@ func main() {
 	for _, t := range config.Targets {
 		log.Printf("  - %s\n", t)
 	}
-	log.Fatal(http.ListenAndServe(config.Server.Bind, mux))
+
+	s := strings.Split(config.Server.Bind, ":")
+	if s[0] == "unix" {
+		if len(s) != 2 {
+			log.Fatal("Socket file not specified!")
+		}
+		if _, err := os.Stat(s[1]); err == nil {
+			err = os.Remove(s[1])
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		syscall.Umask(0000)
+		unixListener, err := net.Listen("unix", s[1])
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Fatal(http.Serve(unixListener, mux))
+	} else {
+		log.Fatal(http.ListenAndServe(config.Server.Bind, mux))
+	}
+
 }
 
 type Result struct {
