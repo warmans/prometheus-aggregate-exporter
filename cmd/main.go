@@ -13,7 +13,8 @@ import (
 	"strconv"
 	"time"
 	"net"
-  	"syscall"
+  "syscall"
+	"regexp"
 
 	"github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -36,6 +37,7 @@ var (
 	versionFlag            *bool
 	targetLabelsEnabled    *bool
 	targetLabelName        *string
+	targetLabelRegexp       *string
 	serverBind             *string
 	targetScrapeTimeout    *int
 	targets                *string
@@ -51,6 +53,7 @@ func init() {
 	targets = stringFlag(flag.CommandLine, "targets", "", "comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values")
 	targetLabelsEnabled = boolFlag(flag.CommandLine, "targets.label", true, "Add a label to metrics to show their origin target")
 	targetLabelName = stringFlag(flag.CommandLine, "targets.label.name", "ae_source", "Label name to use if a target name label is appended to metrics")
+	targetLabelRegexp = stringFlag(flag.CommandLine, "targets.label.regexp", ".+", "Regexp for match metrics label values")
 
 	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "Disable verification of TLS certificates")
 
@@ -160,6 +163,8 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 
 		allFamilies := make(map[string]*io_prometheus_client.MetricFamily)
 
+		var newFamilies *io_prometheus_client.MetricFamily
+
 		for {
 			if numTargets == numResuts {
 				break
@@ -181,10 +186,33 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 					}
 					if existingMf, ok := allFamilies[mfName]; ok {
 						for _, m := range mf.Metric {
-							existingMf.Metric = append(existingMf.Metric, m)
+							for _, r := range m.Label {
+								match, _ := regexp.MatchString(*targetLabelRegexp, r.GetValue())
+								if match {
+									existingMf.Metric = append(existingMf.Metric, m)
+								}
+							}
 						}
 					} else {
-						allFamilies[*mf.Name] = mf
+						im := 1
+						for _, m := range mf.Metric {
+							for _, r := range m.Label {
+								match, _ := regexp.MatchString(*targetLabelRegexp, r.GetValue())
+								if match {
+									newFamilies = mf
+									if im == 1 {
+										newFamilies.Metric = newFamilies.Metric[:1]
+										newFamilies.Metric[0] = m
+										im = im + 1
+									} else {
+										newFamilies.Metric = append(newFamilies.Metric, m)
+									}
+								}
+							}
+						}
+						if im >= 2 {
+							allFamilies[*mf.Name] = newFamilies
+						}
 					}
 				}
 				if *verboseFlag {
