@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 	"net"
-  "syscall"
+  	"syscall"
 
 	"github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -113,20 +113,20 @@ func main() {
 
 	s := strings.Split(config.Server.Bind, ":")
 	if s[0] == "unix" {
-					if len(s) != 2 {
-									log.Fatal("Socket file not specified!")
-					}
-					if _, err := os.Stat(s[1]); err == nil {
-									os.Remove(s[1])
-					}
-					syscall.Umask(0000)
-					unixListener, err := net.Listen("unix", s[1])
-					if err != nil {
-									log.Fatal(err)
-					}
-					log.Fatal(http.Serve(unixListener, mux))
+		if len(s) != 2 {
+			log.Fatal("Socket file not specified!")
+		}
+		if _, err := os.Stat(s[1]); err == nil {
+			os.Remove(s[1])
+		}
+		syscall.Umask(0000)
+		unixListener, err := net.Listen("unix", s[1])
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Fatal(http.Serve(unixListener, mux))
 	} else {
-					log.Fatal(http.ListenAndServe(config.Server.Bind, mux))
+		log.Fatal(http.ListenAndServe(config.Server.Bind, mux))
 	}
 
 }
