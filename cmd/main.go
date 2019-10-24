@@ -203,7 +203,7 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 									if im == 1 {
 										newFamilies.Metric = newFamilies.Metric[:1]
 										newFamilies.Metric[0] = m
-										im = im + 1
+										im++
 									} else {
 										newFamilies.Metric = append(newFamilies.Metric, m)
 									}
