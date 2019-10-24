@@ -29,6 +29,9 @@ the aggregate view. This can be modified
   -targets.label.name (TARGETS_LABEL_NAME) string
     	Label name to use if a target name label is appended to metrics (default "ae_source")
     	
+  -targets.label.regexp (TARGETS_LABEL_REGEXP) string
+    	Regexp for match metrics label values (default ".+")
+
   -targets.scrape.timeout (TARGETS_SCRAPE_TIMEOUT) int
     	If a target metrics pages does not responde with this many miliseconds then timeout (default 1000)
 
