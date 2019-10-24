@@ -117,7 +117,10 @@ func main() {
 			log.Fatal("Socket file not specified!")
 		}
 		if _, err := os.Stat(s[1]); err == nil {
-			os.Remove(s[1])
+			err = os.Remove(s[1])
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 		syscall.Umask(0000)
 		unixListener, err := net.Listen("unix", s[1])
