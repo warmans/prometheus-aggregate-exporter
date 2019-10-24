@@ -163,8 +163,6 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 
 		allFamilies := make(map[string]*io_prometheus_client.MetricFamily)
 
-		var newFamilies *io_prometheus_client.MetricFamily
-
 		for {
 			if numTargets == numResuts {
 				break
@@ -194,6 +192,7 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 							}
 						}
 					} else {
+						var newFamilies *io_prometheus_client.MetricFamily
 						im := 1
 						for _, m := range mf.Metric {
 							for _, r := range m.Label {
