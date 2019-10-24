@@ -201,8 +201,8 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 								if match {
 									newFamilies = mf
 									if im == 1 {
-										newFamilies.Metric = newFamilies.Metric[:1]
-										newFamilies.Metric[0] = m
+										newFamilies.Metric = nil
+										newFamilies.Metric = append(newFamilies.Metric, m)
 										im++
 										break
 									} else {
