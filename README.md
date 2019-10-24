@@ -21,7 +21,7 @@ the aggregate view. This can be modified
     	If a target metrics pages does not responde with this many miliseconds then timeout (default 1000)
     	
   -targets (TARGETS) string
-    	comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics
+    	comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values
     	
   -targets.label (TARGETS_LABEL) bool
     	Add a label to metrics to show their origin target (default true)
