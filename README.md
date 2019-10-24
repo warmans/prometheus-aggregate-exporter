@@ -15,7 +15,7 @@ the aggregate view. This can be modified
 
 ```
   -server.bind (SERVER_BIND) string
-    	Bind the HTTP server to this address e.g. 127.0.0.1:8080 or just :8080 (default ":8080")
+    	Bind the HTTP server to this address e.g. 127.0.0.1:8080 or just :8080 (default ":8080"). For unix socket use unix:/path/to/file.sock
     	
   -target.scrape.timeout (TARGET_SCRAPE_TIMEOUT) int
     	If a target metrics pages does not responde with this many miliseconds then timeout (default 1000)
