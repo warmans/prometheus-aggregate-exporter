@@ -188,6 +188,7 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 								match, _ := regexp.MatchString(*targetLabelRegexp, r.GetValue())
 								if match {
 									existingMf.Metric = append(existingMf.Metric, m)
+									break
 								}
 							}
 						}
@@ -203,8 +204,10 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 										newFamilies.Metric = newFamilies.Metric[:1]
 										newFamilies.Metric[0] = m
 										im++
+										break
 									} else {
 										newFamilies.Metric = append(newFamilies.Metric, m)
+										break
 									}
 								}
 							}
