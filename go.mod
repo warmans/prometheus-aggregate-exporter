@@ -1,5 +1,7 @@
 module github.com/warmans/prometheus-aggregate-exporter
 
+go 1.14
+
 require (
 	github.com/google/pprof v0.0.0-20190208070709-b421f19a5c07 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20181102032728-5e5cf60278f6 // indirect
