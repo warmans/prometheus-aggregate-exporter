@@ -9,11 +9,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
+	"syscall"
 	"time"
-	"net"
-  	"syscall"
 
 	"github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -205,8 +205,8 @@ func (f *Aggregator) fetch(target string, resultChan chan *Result) {
 
 	s := strings.Split(target, "=")
 	url := s[0]
-  	name := s[0]
-  	if len(s) == 2 {
+	name := s[0]
+	if len(s) == 2 {
 		url = s[1]
 	}
 
