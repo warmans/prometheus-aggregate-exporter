@@ -156,17 +156,17 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 
 	func(numTargets int, resultChan chan *Result) {
 
-		numResuts := 0
+		numResults := 0
 
 		allFamilies := make(map[string]*io_prometheus_client.MetricFamily)
 
 		for {
-			if numTargets == numResuts {
+			if numTargets == numResults {
 				break
 			}
 			select {
 			case result := <-resultChan:
-				numResuts++
+				numResults++
 
 				if result.Error != nil {
 					log.Printf("Fetch error: %s", result.Error.Error())
