@@ -39,6 +39,26 @@ the aggregate view. This can be modified
     	Show version and exit
 
 ```
+### How to build it
+
+#### Build using the go binary
+
+If you have go (1.14) installed on your machine, you can simply do:
+
+    cd cmd/
+    go build -o prometheus-aggregate-exporter
+
+Or you can use the provided Makefile:
+
+    make build
+
+#### Build into a Docker image
+
+If you have Docker installed (or any runtime understanding the Dockerfile format), you can simply invoke: 
+
+    make docker-build
+    
+And you'll have Docker compile the binary and make it available under the image named `warmans/aggregate-exporter:latest`
 
 ### Example Usage
 ```
@@ -61,3 +81,20 @@ or with docker
 ```
 docker run -it -p 8080:8080 -e TARGETS="http://localhost:3000/metrics" warmans/aggregate-exporter:latest
 ```
+
+
+#### Custom labelling
+
+By default, the labels values that will end up in your metrics will be equals to the target url; for example:
+
+     http_requests_total{method="post",code="200",ae_source="http://localhost:3000/histogram.txt"} 1027 101 
+     
+But you can customize those labels; for example if you invoke the tool with:
+
+     bin/prometheus-aggregate-exporter -targets="histo1=http://localhost:3000/histogram.txt,histo2=http://localhost:3000/histogram-2.txt" -server.bind=":8080" -targets.label.name="instance"
+
+the metrics will rather look like:
+
+    http_requests_total{method="post",code="200",instance="histo1"} 1027 1395066363000
+         
+     

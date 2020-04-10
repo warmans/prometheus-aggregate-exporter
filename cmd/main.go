@@ -9,11 +9,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
+	"syscall"
 	"time"
-	"net"
-  	"syscall"
 
 	"github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -156,17 +156,17 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 
 	func(numTargets int, resultChan chan *Result) {
 
-		numResuts := 0
+		numResults := 0
 
 		allFamilies := make(map[string]*io_prometheus_client.MetricFamily)
 
 		for {
-			if numTargets == numResuts {
+			if numTargets == numResults {
 				break
 			}
 			select {
 			case result := <-resultChan:
-				numResuts++
+				numResults++
 
 				if result.Error != nil {
 					log.Printf("Fetch error: %s", result.Error.Error())
@@ -205,8 +205,8 @@ func (f *Aggregator) fetch(target string, resultChan chan *Result) {
 
 	s := strings.Split(target, "=")
 	url := s[0]
-  	name := s[0]
-  	if len(s) == 2 {
+	name := s[0]
+	if len(s) == 2 {
 		url = s[1]
 	}
 
