@@ -60,6 +60,8 @@ If you have Docker installed (or any runtime understanding the Dockerfile format
     
 And you'll have Docker compile the binary and make it available under the image named `warmans/aggregate-exporter:latest`
 
+Alternatively the image is available though docker-hub: https://hub.docker.com/r/warmans/prometheus-aggregate-exporter
+
 ### Example Usage
 ```
 ./bin/prometheus-aggregate-exporter \
