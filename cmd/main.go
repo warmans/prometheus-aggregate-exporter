@@ -206,8 +206,8 @@ func (f *Aggregator) fetch(target string, resultChan chan *Result) {
 	s := strings.Split(target, "=")
 	url := s[0]
 	name := s[0]
-	if len(s) == 2 {
-		url = s[1]
+	if len(s) > 1 {
+		url = strings.Join(s[1:], "=")
 	}
 
 	startTime := time.Now()

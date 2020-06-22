@@ -97,4 +97,8 @@ the metrics will rather look like:
 
     http_requests_total{method="post",code="200",instance="histo1"} 1027 1395066363000
          
-     
+#### Target URL containing a `=` character
+
+In case one of your target urls contains a `=` character (for instance consul agent's exporter is available at `/v1/agent/metrics?format=prometheus`), you **must** use the custom labelling notation:
+
+     bin/prometheus-aggregate-exporter -targets="consul=http://localhost:8500/v1/agent/metrics?format=prometheus"
