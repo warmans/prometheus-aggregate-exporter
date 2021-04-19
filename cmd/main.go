@@ -132,13 +132,13 @@ func main() {
 			defer r.Body.Close()
 			err := r.ParseForm()
 			if err != nil {
-				http.Error(rw, "Bad Request", http.StatusBadRequest)
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 				return
 			}
 			name := r.Form.Get("name")
 			address := r.Form.Get("address")
 			if name == "" || address == "" {
-				http.Error(rw, "Bad Request", http.StatusBadRequest)
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 				return
 			}
 
@@ -159,13 +159,13 @@ func main() {
 			defer r.Body.Close()
 			err := r.ParseForm()
 			if err != nil {
-				http.Error(rw, "Bad Request", http.StatusBadRequest)
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 				return
 			}
 			name := r.Form.Get("name")
 			address := r.Form.Get("address")
 			if name == "" || address == "" {
-				http.Error(rw, "Bad Request", http.StatusBadRequest)
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 				return
 			}
 
@@ -284,7 +284,6 @@ func readLines(path string) ([]string, error) {
 
 // writeLines writes the lines to the given file.
 func writeLines(lines []string, path string) error {
-	//os.Remove(path) //ignore if not found
 	file, err := os.Create(path)
 	if err != nil {
 		return err
