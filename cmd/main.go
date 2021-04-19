@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"log"
 	"os"
@@ -40,6 +41,8 @@ var (
 	targetScrapeTimeout    *int
 	targets                *string
 	insecureSkipVerifyFlag *bool
+	cacheFilePath		   *string
+	dynamicRegistration	   *bool
 )
 
 func init() {
@@ -53,6 +56,9 @@ func init() {
 	targetLabelName = stringFlag(flag.CommandLine, "targets.label.name", "ae_source", "Label name to use if a target name label is appended to metrics")
 
 	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "Disable verification of TLS certificates")
+
+	dynamicRegistration = boolFlag(flag.CommandLine, "targets.dynamic.registration", false, "Enabled dynamic targets registration/deregistration using /register and /unregister endpoints")
+	cacheFilePath = stringFlag(flag.CommandLine, "targets.cache.path", "", "Path to file used as cache of targets usable in case of application restart with additional targets registered")
 
 	flag.Parse()
 }
@@ -75,7 +81,19 @@ func main() {
 	}
 
 	if len(config.Targets) < 1 {
-		log.Fatal("No targets configured")
+		if *dynamicRegistration {
+			log.Print("WARN: no targets configured, using registration only")
+		} else {
+			log.Fatal("No targets configured and dynamic registration is disabled")
+		}
+	}
+
+	if *dynamicRegistration {
+		log.Println("Dynamic target registration enabled")
+		if *cacheFilePath != "" {
+			config.Targets = appendCachedTargets(config.Targets, *cacheFilePath)
+			log.Printf("Using targets cache file %s\n", *cacheFilePath)
+		}
 	}
 
 	// enable InsecureSkipVerify
@@ -105,6 +123,66 @@ func main() {
 			aggregator.Aggregate(config.Targets, rw)
 		}
 	})
+	mux.HandleFunc("/alive", func(rw http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		rw.WriteHeader(http.StatusOK)
+	})
+	if *dynamicRegistration {
+		mux.HandleFunc("/register", func(rw http.ResponseWriter, r *http.Request) {
+			defer r.Body.Close()
+			err := r.ParseForm()
+			if err != nil {
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+			name := r.Form.Get("name")
+			address := r.Form.Get("address")
+			if name == "" || address == "" {
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+
+			schema := r.Form.Get("schema")
+			if schema == "" {
+				schema = "http"
+			}
+
+			uri := schema + "://" + address
+			target := name + "=" + uri
+			config.Targets = append(config.Targets, target)
+			if *cacheFilePath != "" {
+				saveTargets(config.Targets, *cacheFilePath)
+			}
+			log.Printf("Registered target %s with name %s\n", uri, name)
+		})
+		mux.HandleFunc("/unregister", func(rw http.ResponseWriter, r *http.Request) {
+			defer r.Body.Close()
+			err := r.ParseForm()
+			if err != nil {
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+			name := r.Form.Get("name")
+			address := r.Form.Get("address")
+			if name == "" || address == "" {
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+
+			schema := r.Form.Get("schema")
+			if schema == "" {
+				schema = "http"
+			}
+
+			uri := schema + "://" + address
+			target := name + "=" + uri
+			config.Targets = removeTarget(config.Targets, target)
+			if *cacheFilePath != "" {
+				saveTargets(config.Targets, *cacheFilePath)
+			}
+			log.Printf("Unregistered target %s with name %s\n", uri, name)
+		})
+	}
 
 	log.Printf("Starting server on %s with targets:\n", config.Server.Bind)
 	for _, t := range config.Targets {
@@ -144,6 +222,79 @@ type Result struct {
 
 type Aggregator struct {
 	HTTP *http.Client
+}
+
+func indexOf(element string, data []string) int {
+	for k, v := range data {
+		if element == v {
+			return k
+		}
+	}
+	return -1 //not found.
+}
+
+func removeTarget(targets []string, target string) []string {
+	index := indexOf(target, targets)
+	if index == -1 {
+		log.Printf("There is no currently registered target %s", target)
+		return targets
+	}
+	targets[index] = targets[len(targets)-1]
+	// We do not need to put s[i] at the end, as it will be discarded anyway
+	return targets[:len(targets)-1]
+}
+
+func appendCachedTargets(targets []string, cacheFilePath string) []string {
+	targetsFromFile, err := readLines(cacheFilePath)
+	result := targets
+	if err == nil {
+		for i := range targetsFromFile {
+			target := targetsFromFile[i]
+			if indexOf(target, result) == -1 {
+				result = append(result, target)
+				log.Printf("Recovered target %s from cache file\n", target)
+			}
+		}
+	}
+
+	return result
+}
+
+func saveTargets(targets []string, cacheFilePath string){
+	err := writeLines(targets, cacheFilePath)
+	if err != nil {
+		log.Fatal("Error while saving targets cache")
+	}
+}
+
+func readLines(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines, scanner.Err()
+}
+
+// writeLines writes the lines to the given file.
+func writeLines(lines []string, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	w := bufio.NewWriter(file)
+	for _, line := range lines {
+		fmt.Fprintln(w, line)
+	}
+	return w.Flush()
 }
 
 func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
