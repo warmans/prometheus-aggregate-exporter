@@ -18,6 +18,32 @@ build:
 	echo ">> building binaries"
 	go build -o ${BIN_DIR}/prometheus-aggregate-exporter -ldflags "-X main.Version=${GIT_TAG}" ./cmd
 
+
+# Manual Testing
+#----------------------------------------------------------------------
+.PHONY: test.run-fixture-server
+test.run-fixture-server:
+	cd fixture; go run serve.go
+
+.PHONY: test.run
+test.run: build
+	./bin/prometheus-aggregate-exporter \
+	-targets="t1=http://localhost:3000/histogram.txt,t2=http://localhost:3000/histogram-2.txt" \
+	-server.bind=":8080" \
+	-verbose=true \
+	-targets.dynamic.registration=true \
+	-targets.cache.path=".cache"
+
+.PHONY: test.scrape
+test.scrape:
+	curl localhost:8080/metrics
+
+test.unregister:
+	curl -X POST -H "Content-Type: application/x-www-form-urlencoded" -d "name=t1&address=localhost:3000/histogram.txt" localhost:8080/unregister
+
+test.register:
+	curl -X POST -H "Content-Type: application/x-www-form-urlencoded" -d "name=t1&address=localhost:3000/histogram.txt" localhost:8080/register
+
 # Packaging
 #-----------------------------------------------------------------------
 

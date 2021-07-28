@@ -65,6 +65,22 @@ And you'll have Docker compile the binary and make it available under the image 
 
 Alternatively the image is available though docker-hub: https://hub.docker.com/r/warmans/prometheus-aggregate-exporter
 
+### Manual Testing
+
+You can run the exporter against some static fixture files by running the following make targets
+in separate terminals.
+
+```shell
+$ make test.run-fixture-server
+$ make test.run
+```
+
+then to view the `/metrics` page:
+
+```shell
+$ make test.scrape
+```
+
 ### Example Usage
 ```
 ./bin/prometheus-aggregate-exporter \
