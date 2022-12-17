@@ -21,7 +21,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 )
 
-//Config is used to store the configuration of this program
+// Config is used to store the configuration of this program
 type Config struct {
 	Server struct {
 		Bind string
@@ -39,6 +39,8 @@ var (
 	targetLabelsEnabled    *bool
 	targetLabelName        *string
 	serverBind             *string
+	tlsServerCert          *string
+	tlsServerKey           *string
 	targetScrapeTimeout    *int
 	targets                *string
 	insecureSkipVerifyFlag *bool
@@ -50,6 +52,9 @@ func init() {
 	verboseFlag = boolFlag(flag.CommandLine, "verbose", false, "Log more information")
 	versionFlag = boolFlag(flag.CommandLine, "version", false, "Show version and exit")
 	serverBind = stringFlag(flag.CommandLine, "server.bind", ":8080", "Bind the HTTP server to this address e.g. 127.0.0.1:8080 or just :8080. For unix socket use unix:/path/to/file.sock")
+
+	tlsServerCert = stringFlag(flag.CommandLine, "tls.server-cert", "", "Path to the TLS server cert for serving via HTTPS")
+	tlsServerKey = stringFlag(flag.CommandLine, "tls.server-key", "", "Path to the TLS server key for serving via HTTPS")
 
 	targetScrapeTimeout = intFlag(flag.CommandLine, "targets.scrape.timeout", 1000, "If a target metrics pages does not responde with this many miliseconds then timeout")
 	targets = stringFlag(flag.CommandLine, "targets", "", "comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values")
@@ -209,7 +214,18 @@ func main() {
 		}
 		log.Fatal(http.Serve(unixListener, mux))
 	} else {
-		log.Fatal(http.ListenAndServe(config.Server.Bind, mux))
+		if tlsServerCert != nil && *tlsServerCert != "" && tlsServerKey != nil && *tlsServerKey != "" {
+			if _, err := os.Stat(*tlsServerCert); err != nil {
+				log.Fatalf("Failed to load TLS server certificate: '%v'", err)
+			}
+
+			if _, err := os.Stat(*tlsServerKey); err != nil {
+				log.Fatalf("Failed to load TLS server key: '%v'", err)
+			}
+			log.Fatal(http.ListenAndServeTLS(config.Server.Bind, *tlsServerCert, *tlsServerKey, mux))
+		} else {
+			log.Fatal(http.ListenAndServe(config.Server.Bind, mux))
+		}
 	}
 
 }
