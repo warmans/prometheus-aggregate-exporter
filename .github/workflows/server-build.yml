@@ -1,4 +1,4 @@
-name: server build/publish
+name: test/build/publish
 
 env:
   GO_VERSION: "^1.20.0"
