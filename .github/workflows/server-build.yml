@@ -84,7 +84,6 @@ jobs:
       - name: Build and push server
         uses: docker/build-push-action@v4
         with:
-          build-args:
-            - GIT_TAG=${{env.GIT_TAG}}
+          build-args: GIT_TAG=${{env.GIT_TAG}}
           push: true
           tags: warmans/prometheus-aggregate-exporter:latest,warmans/prometheus-aggregate-exporter:${{env.GIT_TAG}}
