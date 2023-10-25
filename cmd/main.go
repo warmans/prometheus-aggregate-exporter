@@ -386,33 +386,31 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 			if numTargets == numResults {
 				break
 			}
-			select {
-			case result := <-resultChan:
-				numResults++
 
-				if result.Error != nil {
-					log.Printf("Fetch error: %s", result.Error.Error())
-					continue
-				}
+			result := <-resultChan
+			numResults++
 
-				for mfName, mf := range result.MetricFamily {
-					if *targetLabelsEnabled {
-						for _, m := range mf.Metric {
-							m.Label = append(m.Label, &io_prometheus_client.LabelPair{Name: targetLabelName, Value: &result.Name})
-						}
-					}
-					if existingMf, ok := allFamilies[mfName]; ok {
-						for _, m := range mf.Metric {
-							existingMf.Metric = append(existingMf.Metric, m)
-						}
-					} else {
-						allFamilies[*mf.Name] = mf
+			if result.Error != nil {
+				log.Printf("Fetch error: %s", result.Error.Error())
+				continue
+			}
+
+			for mfName, mf := range result.MetricFamily {
+				if *targetLabelsEnabled {
+					for _, m := range mf.Metric {
+						m.Label = append(m.Label, &io_prometheus_client.LabelPair{Name: targetLabelName, Value: &result.Name})
 					}
 				}
-				if *verboseFlag {
-					log.Printf("OK: %s=%s was refreshed in %.3f seconds", result.Name, result.URL, result.SecondsTaken)
+				if existingMf, ok := allFamilies[mfName]; ok {
+					existingMf.Metric = append(existingMf.Metric, mf.Metric...)
+				} else {
+					allFamilies[*mf.Name] = mf
 				}
 			}
+			if *verboseFlag {
+				log.Printf("OK: %s=%s was refreshed in %.3f seconds", result.Name, result.URL, result.SecondsTaken)
+			}
+
 		}
 
 		encoder := expfmt.NewEncoder(output, expfmt.FmtText)

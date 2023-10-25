@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -29,5 +30,7 @@ func setFromEnv(set *flag.FlagSet, name string) {
 	if val == "" {
 		return
 	}
-	set.Set(name, val)
+	if err := set.Set(name, val); err != nil {
+		panic(fmt.Sprintf("failed to set value: %s", err.Error()))
+	}
 }

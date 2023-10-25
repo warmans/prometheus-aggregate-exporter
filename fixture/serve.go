@@ -10,5 +10,7 @@ func main() {
 	http.Handle("/", fs)
 
 	log.Println("Listening...")
-	http.ListenAndServe(":3000", nil)
+	if err := http.ListenAndServe(":3000", nil); err != nil {
+		panic(err)
+	}
 }

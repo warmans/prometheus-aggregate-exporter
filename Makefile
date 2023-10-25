@@ -13,6 +13,16 @@ PROJECT_OWNER ?= warmans
 PROJECT_NAME ?= aggregate-exporter
 DOCKER_NAME ?= $(PROJECT_OWNER)/$(PROJECT_NAME)
 
+LOCAL_BIN:="$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))/.env/bin"
+
+.PHONY: install.golangci
+install.golangci:
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(LOCAL_BIN) v1.51.2
+
+.PHONT: lint.go
+lint:
+	$(LOCAL_BIN)/golangci-lint run
+
 .PHONY: build
 build:
 	echo ">> building binaries"
