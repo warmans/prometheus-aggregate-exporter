@@ -15,8 +15,8 @@ DOCKER_NAME ?= $(PROJECT_OWNER)/$(PROJECT_NAME)
 
 LOCAL_BIN:="$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))/.env/bin"
 
-.PHONY: install.golangci
-install.golangci:
+.PHONY: install.linter
+install.linter:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(LOCAL_BIN) v1.51.2
 
 .PHONT: lint.go
@@ -44,8 +44,8 @@ test.run: build
 	-targets.dynamic.registration=true \
 	-targets.cache.path=".cache"
 
-.PHONY: test.scrape
-test.scrape:
+.PHONY: test.fetch
+test.fetch:
 	curl localhost:8080/metrics
 
 test.unregister:
