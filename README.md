@@ -1,4 +1,4 @@
-Aggregate Exporter
+`Aggregate Exporter
 ============================
 
 Aggregates many exporters to a single page to reduce number of
@@ -138,11 +138,15 @@ Example usage:
 * register exporter: `localhost:8080/register?name=someExporter&address=localhost:3000/metrics`
 * unregister exporter: `localhost:8080/unregister?name=xxx&address=localhost:3000`
 
+### Releasing via github actions
 
+A release is made whenever a tag following the normal semver pattern is pushed.
 
-### Releasing
+e.g. `v1.0.0` or `v1.0.0rc1`
 
-Releasing is done as follows (although can only be done by the author).
+### Releasing Manually
+
+Releasing is done as follows (although it can only be done by the author).
 
 1. git tag vX.X.X
 2. make build 
