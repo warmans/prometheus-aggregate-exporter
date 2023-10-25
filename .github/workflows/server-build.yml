@@ -84,6 +84,4 @@ jobs:
         with:
           context: ./server
           push: false
-          tags:
-            - warmans/prometheus-aggregate-exporter:latest
-            - warmans/prometheus-aggregate-exporter:${{env.GIT_TAG}}
+          tags: warmans/prometheus-aggregate-exporter:latest,warmans/prometheus-aggregate-exporter:${{env.GIT_TAG}}
