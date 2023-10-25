@@ -5,7 +5,7 @@ endif
 GO    := go
 PROMU ?= $(GOPATH)/bin/promu
 
-GIT_TAG := $(shell git describe --tags --exact-match 2>/dev/null || echo "unknown")
+GIT_TAG ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "unknown")
 
 BIN_DIR ?= $(shell pwd)/bin
 

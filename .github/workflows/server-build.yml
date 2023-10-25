@@ -1,0 +1,91 @@
+name: server build/publish
+
+env:
+  GO_VERSION: "^1.20.0"
+  GIT_TAG: ${{github.ref_name}}
+
+on:
+  push:
+    branches: [ master, develop ]
+
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: ${{env.GO_VERSION}}
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.53.3
+          working-directory: cmd
+          skip-cache: true
+          args: --timeout=5m
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: ${{env.GO_VERSION}}
+
+      - name: Go tests
+        run: go test -v ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: ${{env.GO_VERSION}}
+
+      - name: Build
+        working-directory: ${{env.working-directory}}
+        run: make build
+
+  publish:
+    runs-on: ubuntu-latest
+    on:
+      push:
+        tags:
+          - 'v[0-9]+.[0-9]+.[0-9]+'
+    needs:
+      - build
+      - test
+    env:
+      working-directory: ./server
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{secrets.DOCKERHUB_USERNAME}}
+          password: ${{secrets.DOCKERHUB_TOKEN}}
+
+      - name: Build and push server
+        uses: docker/build-push-action@v4
+        with:
+          context: ./server
+          push: false
+          tags:
+          - warmans/prometheus-aggregate-exporter:latest
+          - warmans/prometheus-aggregate-exporter:${{env.GIT_TAG}}

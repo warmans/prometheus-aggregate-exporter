@@ -65,11 +65,11 @@ func init() {
 
 	dynamicRegistration = boolFlag(flag.CommandLine, "targets.dynamic.registration", false, "Enabled dynamic targets registration/deregistration using /register and /unregister endpoints")
 	cacheFilePath = stringFlag(flag.CommandLine, "targets.cache.path", "", "Path to file used as cache of targets usable in case of application restart with additional targets registered")
-
-	flag.Parse()
 }
 
 func main() {
+
+	flag.Parse()
 
 	if *versionFlag {
 		fmt.Print(Version)
