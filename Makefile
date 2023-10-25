@@ -59,7 +59,7 @@ test.register:
 
 .PHONY: docker-build
 docker-build:
-	docker build -t $(DOCKER_NAME):$(GIT_TAG) -t $(DOCKER_NAME):latest . && echo ">> built $(DOCKER_NAME):$(GIT_TAG) and $(DOCKER_NAME):latest"
+	docker build --build-arg GIT_TAG=$(GIT_TAG) -t $(DOCKER_NAME):$(GIT_TAG) -t $(DOCKER_NAME):latest . && echo ">> built $(DOCKER_NAME):$(GIT_TAG) and $(DOCKER_NAME):latest"
 
 .PHONY: buildah-f30
 buildah-f30:
