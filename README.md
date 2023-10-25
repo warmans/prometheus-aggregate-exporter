@@ -138,3 +138,14 @@ Example usage:
 * register exporter: `localhost:8080/register?name=someExporter&address=localhost:3000/metrics`
 * unregister exporter: `localhost:8080/unregister?name=xxx&address=localhost:3000`
 
+
+
+### Releasing
+
+Releasing is done as follows (although can only be done by the author).
+
+1. git tag vX.X.X
+2. make build 
+3. make docker-build
+4. make docker-publish 
+
