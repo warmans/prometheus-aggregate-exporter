@@ -65,6 +65,7 @@ jobs:
     needs:
       - build
       - test
+      - lint
     env:
       working-directory: ./server
     steps:
