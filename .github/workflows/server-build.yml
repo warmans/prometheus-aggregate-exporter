@@ -116,7 +116,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains( env.GIT_TAG, '.rc' )
     needs:
       - build
       - test
