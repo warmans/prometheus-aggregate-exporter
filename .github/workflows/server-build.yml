@@ -1,7 +1,7 @@
 name: test/build/publish
 
 env:
-  GO_VERSION: "^1.20.0"
+  GO_VERSION: "^1.22.5"
   GIT_TAG: ${{github.ref_name}}
 
 on:
@@ -20,14 +20,14 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{env.GO_VERSION}}
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.53.3
+          version: v1.59.1
           working-directory: cmd
           skip-cache: true
           args: --timeout=5m
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{env.GO_VERSION}}
 
@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{env.GO_VERSION}}
 
