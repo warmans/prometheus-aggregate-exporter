@@ -87,7 +87,7 @@ jobs:
         uses: actions/create-release@v1
         id: create_release
         with:
-          draft: contains( env.GIT_TAG, '.rc' ) #todo: is there no regex match?
+          draft: ${{ contains( env.GIT_TAG, '.rc' ) }} #todo: is there no regex match?
           prerelease: false
           release_name: ${{ env.GIT_TAG }}
           tag_name: ${{ env.GIT_TAG }}
