@@ -83,13 +83,6 @@ jobs:
           GOOS: darwin
           GOARCH: amd64
 
-      - name: Build Windows x86
-        working-directory: ${{env.working-directory}}
-        run: make build-arch
-        env:
-          GOOS: windows
-          GOARCH: amd64
-
       - name: Create Release
         uses: actions/create-release@v1
         id: create_release
