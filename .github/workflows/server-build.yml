@@ -102,6 +102,7 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./bin/prometheus-aggregate-exporter-linux-amd64
           asset_name: prometheus-aggregate-exporter-linux-amd64
+          asset_content_type: application/octet-stream
 
       - name: upload darwin x86 artifact
         uses: actions/upload-release-asset@v1
@@ -111,15 +112,7 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./bin/prometheus-aggregate-exporter-darwin-amd64
           asset_name: prometheus-aggregate-exporter-darwin-amd64
-
-      - name: Upload windows x86 artifact
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./bin/prometheus-aggregate-exporter-windows-amd64.exe
-          asset_name: prometheus-aggregate-exporter-windows-amd64.exe
+          asset_content_type: application/octet-stream
 
   publish:
     runs-on: ubuntu-latest
