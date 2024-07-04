@@ -88,7 +88,7 @@ jobs:
         run: make build-arch
         env:
           GOOS: windows
-          GOARCH: x86
+          GOARCH: amd64
 
       - name: Create Release
         uses: actions/create-release@v1
