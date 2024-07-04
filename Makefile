@@ -25,9 +25,19 @@ lint:
 
 .PHONY: build
 build:
-	echo ">> building binaries"
+	echo ">> building linux binary"
 	go build -o ${BIN_DIR}/prometheus-aggregate-exporter -ldflags "-X main.Version=${GIT_TAG}" ./cmd
 
+.PHONY: build-arch
+build-arch:
+ifndef GOOS
+	echo "GOOS must be defined"; exit 1;
+endif
+ifndef GOARCH
+	echo "GOARCH must be defined"; exit 1;
+endif
+	echo ">> building linux binary"
+	env GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o ${BIN_DIR}/prometheus-aggregate-exporter-$(GOOS)-$(GOARCH) -ldflags "-X main.Version=${GIT_TAG}" ./cmd
 
 # Manual Testing
 #----------------------------------------------------------------------

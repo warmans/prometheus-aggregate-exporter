@@ -1,15 +1,14 @@
-`Aggregate Exporter
+Aggregate Exporter
 ============================
 
-Aggregates many exporters to a single page to reduce number of
+Aggregates many exporters to a single endpoint to reduce number of
 exposed endpoints.
 
 __NOTE__
 
-This doesn't actually aggregate metrics (as in it doesn't sum them up etc.) 
-and is possibly quite badly named. As a result each target
-has it's metrics tagged with a label so that they are not duplicated in
-the aggregate view. This can be modified 
+This doesn't actually aggregate metrics (as in it doesn't sum them up etc.). 
+As a result each target has its metrics tagged with a label so that they are not duplicated in
+the aggregate view. 
 
 ### Options
 
@@ -102,7 +101,6 @@ or with docker
 ```
 docker run -it -p 8080:8080 -e TARGETS="http://localhost:3000/metrics" warmans/aggregate-exporter:latest
 ```
-
 
 #### Custom labelling
 
