@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"flag"
+	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"os"
 	"strings"
@@ -382,6 +383,17 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 
 		allFamilies := make(map[string]*io_prometheus_client.MetricFamily)
 
+		upReg := prometheus.NewRegistry()
+		upMetric := prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "up",
+				Help: "Information about if the exporter reached the downstream exporters",
+			},
+			// Even if targetLabels are not enabled, we need to label the up metric accordingly.
+			[]string{*targetLabelName},
+		)
+		upReg.MustRegister(upMetric)
+
 		for {
 			if numTargets == numResults {
 				break
@@ -391,9 +403,12 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 			numResults++
 
 			if result.Error != nil {
+				upMetric.WithLabelValues(result.Name).Set(0)
 				log.Printf("Fetch error: %s", result.Error.Error())
 				continue
 			}
+
+			upMetric.WithLabelValues(result.Name).Set(1)
 
 			for mfName, mf := range result.MetricFamily {
 				if *targetLabelsEnabled {
@@ -415,6 +430,16 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 
 		fmtText := expfmt.NewFormat(expfmt.TypeTextPlain)
 		encoder := expfmt.NewEncoder(output, fmtText)
+
+		upMetricFamilys, err := upReg.Gather()
+		if err != nil {
+			log.Printf("Failed to gather uptime metrics: %s", err.Error())
+		}
+
+		if err := encoder.Encode(upMetricFamilys[0]); err != nil {
+			log.Printf("Failed to encode up family: %s", err.Error())
+		}
+
 		for _, f := range allFamilies {
 			if err := encoder.Encode(f); err != nil {
 				log.Printf("Failed to encode familty: %s", err.Error())
