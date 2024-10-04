@@ -413,7 +413,8 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 
 		}
 
-		encoder := expfmt.NewEncoder(output, expfmt.FmtText)
+		fmtText := expfmt.NewFormat(expfmt.TypeTextPlain)
+		encoder := expfmt.NewEncoder(output, fmtText)
 		for _, f := range allFamilies {
 			if err := encoder.Encode(f); err != nil {
 				log.Printf("Failed to encode familty: %s", err.Error())
