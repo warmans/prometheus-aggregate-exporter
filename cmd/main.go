@@ -39,6 +39,7 @@ var (
 	versionFlag            *bool
 	targetLabelsEnabled    *bool
 	targetLabelName        *string
+	targetUpMetric         *bool
 	serverBind             *string
 	tlsServerCert          *string
 	tlsServerKey           *string
@@ -61,6 +62,7 @@ func init() {
 	targets = stringFlag(flag.CommandLine, "targets", "", "comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values")
 	targetLabelsEnabled = boolFlag(flag.CommandLine, "targets.label", true, "Add a label to metrics to show their origin target")
 	targetLabelName = stringFlag(flag.CommandLine, "targets.label.name", "ae_source", "Label name to use if a target name label is appended to metrics")
+	targetUpMetric = boolFlag(flag.CommandLine, "targets.up", false, "Enables an additional reachability metric for each downstream exporter.")
 
 	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "Disable verification of TLS certificates")
 
@@ -431,13 +433,15 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 		fmtText := expfmt.NewFormat(expfmt.TypeTextPlain)
 		encoder := expfmt.NewEncoder(output, fmtText)
 
-		upMetricFamilys, err := upReg.Gather()
-		if err != nil {
-			log.Printf("Failed to gather uptime metrics: %s", err.Error())
-		}
+		if *targetUpMetric {
+			upMetricFamilys, err := upReg.Gather()
+			if err != nil {
+				log.Printf("Failed to gather uptime metrics: %s", err.Error())
+			}
 
-		if err := encoder.Encode(upMetricFamilys[0]); err != nil {
-			log.Printf("Failed to encode up family: %s", err.Error())
+			if err := encoder.Encode(upMetricFamilys[0]); err != nil {
+				log.Printf("Failed to encode up family: %s", err.Error())
+			}
 		}
 
 		for _, f := range allFamilies {
