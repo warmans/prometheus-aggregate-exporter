@@ -39,20 +39,31 @@ the aggregate view.
     	
   -version (VERSION)
     	Show version and exit
-
 ```
+
 ### How to build it
 
 #### Build using the go binary
 
 If you have go (1.14) installed on your machine, you can simply do:
 
-    cd cmd/
-    go build -o prometheus-aggregate-exporter
+```shell
+cd cmd/
+go build -o prometheus-aggregate-exporter
+```
+
+To build without CGO enabled, which removes the dependency on `libc`, do:
+
+```shell
+cd cmd/
+CGO_ENABLED=0 go build -o prometheus-aggregate-exporter
+```
 
 Or you can use the provided Makefile:
 
-    make build
+```shell
+make build
+```
 
 #### Build into a Docker image
 
@@ -70,18 +81,19 @@ You can run the exporter against some static fixture files by running the follow
 in separate terminals.
 
 ```shell
-$ make test.run-fixture-server
-$ make test.run
+make test.run-fixture-server
+make test.run
 ```
 
 then to view the `/metrics` page:
 
 ```shell
-$ make test.scrape
+make test.fetch
 ```
 
 ### Example Usage
-```
+
+```shell
 ./bin/prometheus-aggregate-exporter \
 	-targets="http://localhost:3000/histogram.txt,http://localhost:3000/histogram-2.txt" \
 	-server.bind=":8080"
@@ -90,7 +102,7 @@ $ make test.scrape
 or using environment variables instead of flags: 
 
 
-```
+```shell
 TARGETS="http://localhost:3000/histogram.txt,http://localhost:3000/histogram-2.txt" \
 SERVER_BIND=":8080" \
 ./bin/prometheus-aggregate-exporter 
@@ -98,7 +110,7 @@ SERVER_BIND=":8080" \
 
 or with docker
 
-```
+```shell
 docker run -it -p 8080:8080 -e TARGETS="http://localhost:3000/metrics" warmans/aggregate-exporter:latest
 ```
 
