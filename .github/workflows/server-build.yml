@@ -27,7 +27,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.59.1
+          version: v1.62.0
           working-directory: cmd
           skip-cache: true
           args: --timeout=5m

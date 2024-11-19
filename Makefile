@@ -17,7 +17,7 @@ LOCAL_BIN := "$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))/.env/bi
 
 .PHONY: install.linter
 install.linter:
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(LOCAL_BIN) v1.51.2
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(LOCAL_BIN) v1.62.0
 
 .PHONY: lint.go
 lint:
