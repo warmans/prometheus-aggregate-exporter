@@ -18,6 +18,9 @@ the aggregate view.
     	
   -targets (TARGETS) string
     	comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values
+
+  -targets.config (TARGETS_CONFIG) string
+        Path to JSON config file for per-target configuration (auth, etc.)
     	
   -targets.label (TARGETS_LABEL) bool
     	Add a label to metrics to show their origin target (default true)
@@ -45,9 +48,6 @@ the aggregate view.
 
   -targets.auth.token_file (TARGETS_AUTH_TOKEN_FILE) string
         Path to file containing bearer token (preferred over plain token flag)
-
-  -targets.tls.insecure_skip_verify (TARGETS_TLS_INSECURE_SKIP_VERIFY) bool
-        Skip TLS verification for target scraping (use with caution)
 
   -targets.dynamic.registration (TARGETS_DYNAMIC_REGISTRATION) bool
         Enabled dynamic targets registration/deregistration using /register and /unregister endpoints (default false)
@@ -184,6 +184,40 @@ To scrape endpoints that require Bearer token auth:
 Or (less secure) with plain token flag:
 
      bin/prometheus-aggregate-exporter -targets="secure=https://localhost:9200/_prometheus/metrics" -targets.auth.type="bearer" -targets.auth.token="your-token"
+
+#### Per-target auth via JSON config
+
+If you need different auth credentials per target, use `-targets.config`:
+
+```json
+{
+  "targets": [
+    {
+      "name": "secure_basic",
+      "url": "https://localhost:9200/_prometheus/metrics",
+      "auth": {
+        "type": "basic",
+        "username": "prometheus_scraper",
+        "password_file": "/run/secrets/prometheus_password"
+      }
+    },
+    {
+      "name": "secure_bearer",
+      "url": "https://localhost:9200/_prometheus/metrics",
+      "auth": {
+        "type": "bearer",
+        "token_file": "/run/secrets/prometheus_bearer_token"
+      }
+    },
+    {
+      "name": "public",
+      "url": "http://localhost:8081/metrics"
+    }
+  ]
+}
+```
+
+Targets defined via `-targets` continue to work as before. When `-targets.config` is set, targets from the config are included alongside `-targets` and dynamically registered targets.
 
 #### Dynamic registration 
 

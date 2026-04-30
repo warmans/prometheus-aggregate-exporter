@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -46,8 +48,8 @@ var (
 	tlsServerKey           *string
 	targetScrapeTimeout    *int
 	targets                *string
+	targetsConfigPath      *string
 	insecureSkipVerifyFlag *bool
-	targetsTLSInsecureSkip *bool
 	authType               *string
 	authUsername           *string
 	authPassword           *string
@@ -68,12 +70,12 @@ func init() {
 
 	targetScrapeTimeout = intFlag(flag.CommandLine, "targets.scrape.timeout", 1000, "If a target metrics pages does not responde with this many miliseconds then timeout")
 	targets = stringFlag(flag.CommandLine, "targets", "", "comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values")
+	targetsConfigPath = stringFlag(flag.CommandLine, "targets.config", "", "Path to JSON config file for per-target configuration (auth, etc.)")
 	targetLabelsEnabled = boolFlag(flag.CommandLine, "targets.label", true, "Add a label to metrics to show their origin target")
 	targetLabelName = stringFlag(flag.CommandLine, "targets.label.name", "ae_source", "Label name to use if a target name label is appended to metrics")
 	targetUpMetric = boolFlag(flag.CommandLine, "targets.up", false, "Enables an additional reachability metric for each downstream exporter.")
 
 	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "Disable verification of TLS certificates")
-	targetsTLSInsecureSkip = boolFlag(flag.CommandLine, "targets.tls.insecure_skip_verify", false, "Skip TLS verification for target scraping")
 	authType = stringFlag(flag.CommandLine, "targets.auth.type", "", "Authentication type for all targets: basic or bearer")
 	authUsername = stringFlag(flag.CommandLine, "targets.auth.username", "", "Username for basic auth")
 	authPassword = stringFlag(flag.CommandLine, "targets.auth.password", "", "Password for basic auth")
@@ -104,8 +106,17 @@ func main() {
 		Targets: filterEmptyStrings(strings.Split(*targets, ",")),
 	}
 
+	var configTargets []TargetSpec
+	if targetsConfigPath != nil && *targetsConfigPath != "" {
+		loaded, err := loadTargetsConfig(*targetsConfigPath)
+		if err != nil {
+			log.Fatalf("FATAL: Failed to load targets config: %s", err.Error())
+		}
+		configTargets = loaded
+	}
+
 	if len(config.Targets) < 1 {
-		if *dynamicRegistration {
+		if len(configTargets) > 0 || *dynamicRegistration {
 			log.Print("No initial targets configured, using registration only")
 		} else {
 			log.Fatal("FATAL: No initial targets configured and dynamic registration is disabled.")
@@ -127,7 +138,7 @@ func main() {
 	}
 
 	// enable InsecureSkipVerify
-	if *insecureSkipVerifyFlag || *targetsTLSInsecureSkip {
+	if *insecureSkipVerifyFlag {
 		log.Printf("disabled verification of TLS certificates")
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
@@ -152,16 +163,18 @@ func main() {
 			http.Error(rw, "Bad Request", http.StatusBadRequest)
 			return
 		}
+		allSpecs := append([]TargetSpec{}, configTargets...)
+		allSpecs = append(allSpecs, targetSpecsFromStrings(targets.Targets())...)
+
 		if t := r.Form.Get("t"); t != "" {
 			targetKey, err := strconv.Atoi(t)
-			targetList := targets.Targets()
-			if err != nil || len(targetList)-1 < targetKey {
+			if err != nil || len(allSpecs)-1 < targetKey {
 				http.Error(rw, "Bad Request", http.StatusBadRequest)
 				return
 			}
-			aggregator.Aggregate([]string{targetList[targetKey]}, rw)
+			aggregator.Aggregate([]TargetSpec{allSpecs[targetKey]}, rw)
 		} else {
-			aggregator.Aggregate(targets.Targets(), rw)
+			aggregator.Aggregate(allSpecs, rw)
 		}
 	})
 	mux.HandleFunc("/alive", func(rw http.ResponseWriter, r *http.Request) {
@@ -188,13 +201,9 @@ func main() {
 				schema = "http"
 			}
 
-			uri, err := buildTargetURI(schema, address)
-			if err != nil {
-				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-				return
-			}
+			uri := schema + "://" + address
 			targets.AddTarget(name + "=" + uri)
-			log.Printf("Registered target %s with name %s\n", maskTargetUserInfo(uri), name)
+			log.Printf("Registered target %s with name %s\n", uri, name)
 		})
 		mux.HandleFunc("/unregister", func(rw http.ResponseWriter, r *http.Request) {
 			defer r.Body.Close()
@@ -215,13 +224,9 @@ func main() {
 				schema = "http"
 			}
 
-			uri, err := buildTargetURI(schema, address)
-			if err != nil {
-				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-				return
-			}
+			uri := schema + "://" + address
 			targets.RemoveTarget(name + "=" + uri)
-			log.Printf("Unregistered target %s with name %s\n", maskTargetUserInfo(uri), name)
+			log.Printf("Unregistered target %s with name %s\n", uri, name)
 		})
 	}
 
@@ -351,6 +356,31 @@ type Result struct {
 	Error        error
 }
 
+type TargetSpec struct {
+	Name string
+	URL  string
+	Auth *AuthConfig
+}
+
+type TargetsConfig struct {
+	Targets []TargetConfig `json:"targets"`
+}
+
+type TargetConfig struct {
+	Name string      `json:"name"`
+	URL  string      `json:"url"`
+	Auth *AuthConfig `json:"auth"`
+}
+
+type AuthConfig struct {
+	Type         string `json:"type"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	PasswordFile string `json:"password_file"`
+	Token        string `json:"token"`
+	TokenFile    string `json:"token_file"`
+}
+
 type Aggregator struct {
 	HTTP             *http.Client
 	AuthType         string
@@ -408,7 +438,7 @@ func writeLines(lines []string, path string) error {
 	return w.Flush()
 }
 
-func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
+func (f *Aggregator) Aggregate(targets []TargetSpec, output io.Writer) {
 
 	resultChan := make(chan *Result, 100)
 
@@ -490,14 +520,14 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 	}(len(targets), resultChan)
 }
 
-func (f *Aggregator) fetch(target string, resultChan chan *Result) {
-	name, targetURL, err := parseTarget(target)
+func (f *Aggregator) fetch(target TargetSpec, resultChan chan *Result) {
+	name, targetURL, err := parseTarget(target.Name, target.URL)
 	if err != nil {
 		resultChan <- &Result{
-			Name:         target,
-			URL:          target,
+			Name:         target.Name,
+			URL:          target.URL,
 			SecondsTaken: 0,
-			Error:        fmt.Errorf("failed to parse target %s due to error: %s", target, err.Error()),
+			Error:        fmt.Errorf("failed to parse target %s due to error: %s", target.URL, err.Error()),
 		}
 		return
 	}
@@ -513,7 +543,7 @@ func (f *Aggregator) fetch(target string, resultChan chan *Result) {
 		}
 		return
 	}
-	if err := f.applyAuth(req); err != nil {
+	if err := f.applyAuth(req, target.Auth); err != nil {
 		resultChan <- &Result{
 			Name:         name,
 			URL:          hideURLUserInfo(targetURL),
@@ -538,25 +568,18 @@ func (f *Aggregator) fetch(target string, resultChan chan *Result) {
 		}
 		result.MetricFamily, err = getMetricFamilies(res.Body)
 		if err != nil {
-			result.Error = fmt.Errorf("failed to add labels to target %s metrics: %s", target, err.Error())
+			result.Error = fmt.Errorf("failed to add labels to target %s metrics: %s", hideURLUserInfo(targetURL), err.Error())
 			resultChan <- result
 			return
 		}
 	}
 	if err != nil {
-		result.Error = fmt.Errorf("failed to fetch URL %s due to error: %s", target, err.Error())
+		result.Error = fmt.Errorf("failed to fetch URL %s due to error: %s", hideURLUserInfo(targetURL), err.Error())
 	}
 	resultChan <- result
 }
 
-func parseTarget(target string) (string, *url.URL, error) {
-	name := ""
-	targetURLRaw := target
-	if strings.Contains(target, "=") {
-		split := strings.SplitN(target, "=", 2)
-		name = split[0]
-		targetURLRaw = split[1]
-	}
+func parseTarget(name string, targetURLRaw string) (string, *url.URL, error) {
 	targetURL, err := url.Parse(targetURLRaw)
 	if err != nil {
 		return "", nil, err
@@ -579,88 +602,146 @@ func hideURLUserInfo(targetURL *url.URL) string {
 	return u.String()
 }
 
-func buildTargetURI(schema string, address string) (string, error) {
-	targetURL, err := url.Parse(schema + "://" + address)
-	if err != nil {
-		return "", err
+func resolveSecretValue(value string, filePath string) (string, error) {
+	if filePath == "" {
+		return value, nil
 	}
-	if targetURL.Scheme == "" || targetURL.Host == "" {
-		return "", fmt.Errorf("invalid target URI")
-	}
-	targetURL.User = nil
-	return targetURL.String(), nil
-}
-
-func maskTargetUserInfo(target string) string {
-	_, targetURL, err := parseTarget(target)
-	if err != nil {
-		return target
-	}
-	return hideURLUserInfo(targetURL)
-}
-
-func (f *Aggregator) resolveAuthPassword() (string, error) {
-	if f.AuthPasswordFile == "" {
-		return f.AuthPassword, nil
-	}
-	b, err := os.ReadFile(f.AuthPasswordFile)
+	b, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(b)), nil
 }
 
-func (f *Aggregator) resolveAuthToken() (string, error) {
-	if f.AuthTokenFile == "" {
-		return f.AuthToken, nil
+func (f *Aggregator) resolveAuthPassword(auth *AuthConfig) (string, error) {
+	if auth == nil {
+		return resolveSecretValue(f.AuthPassword, f.AuthPasswordFile)
 	}
-	b, err := os.ReadFile(f.AuthTokenFile)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(b)), nil
+	return resolveSecretValue(auth.Password, auth.PasswordFile)
 }
 
-func (f *Aggregator) authMode() string {
-	mode := strings.ToLower(strings.TrimSpace(f.AuthType))
+func (f *Aggregator) resolveAuthToken(auth *AuthConfig) (string, error) {
+	if auth == nil {
+		return resolveSecretValue(f.AuthToken, f.AuthTokenFile)
+	}
+	return resolveSecretValue(auth.Token, auth.TokenFile)
+}
+
+func authModeFromConfig(authType string, username string, password string, passwordFile string, token string, tokenFile string) string {
+	mode := strings.ToLower(strings.TrimSpace(authType))
 	if mode == "" {
-		if f.AuthUsername != "" || f.AuthPassword != "" || f.AuthPasswordFile != "" {
+		if username != "" || password != "" || passwordFile != "" {
 			return "basic"
 		}
-		if f.AuthToken != "" || f.AuthTokenFile != "" {
+		if token != "" || tokenFile != "" {
 			return "bearer"
 		}
 	}
 	return mode
 }
 
-func (f *Aggregator) applyAuth(req *http.Request) error {
-	switch f.authMode() {
+func (f *Aggregator) applyAuth(req *http.Request, auth *AuthConfig) error {
+	if auth == nil {
+		switch authModeFromConfig(f.AuthType, f.AuthUsername, f.AuthPassword, f.AuthPasswordFile, f.AuthToken, f.AuthTokenFile) {
+		case "":
+			return nil
+		case "basic":
+			if f.AuthUsername == "" {
+				return fmt.Errorf("targets.auth.username is required for basic auth")
+			}
+			password, err := f.resolveAuthPassword(nil)
+			if err != nil {
+				return err
+			}
+			req.SetBasicAuth(f.AuthUsername, password)
+			return nil
+		case "bearer":
+			token, err := f.resolveAuthToken(nil)
+			if err != nil {
+				return err
+			}
+			if token == "" {
+				return fmt.Errorf("targets.auth.token or targets.auth.token_file is required for bearer auth")
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+			return nil
+		default:
+			return fmt.Errorf("unsupported targets.auth.type %q (supported: basic, bearer)", f.AuthType)
+		}
+	}
+
+	switch authModeFromConfig(auth.Type, auth.Username, auth.Password, auth.PasswordFile, auth.Token, auth.TokenFile) {
 	case "":
 		return nil
 	case "basic":
-		if f.AuthUsername == "" {
-			return fmt.Errorf("targets.auth.username is required for basic auth")
+		if auth.Username == "" {
+			return fmt.Errorf("auth.username is required for basic auth")
 		}
-		password, err := f.resolveAuthPassword()
+		password, err := f.resolveAuthPassword(auth)
 		if err != nil {
 			return err
 		}
-		req.SetBasicAuth(f.AuthUsername, password)
+		req.SetBasicAuth(auth.Username, password)
 		return nil
 	case "bearer":
-		token, err := f.resolveAuthToken()
+		token, err := f.resolveAuthToken(auth)
 		if err != nil {
 			return err
 		}
 		if token == "" {
-			return fmt.Errorf("targets.auth.token or targets.auth.token_file is required for bearer auth")
+			return fmt.Errorf("auth.token or auth.token_file is required for bearer auth")
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		return nil
 	default:
-		return fmt.Errorf("unsupported targets.auth.type %q (supported: basic, bearer)", f.AuthType)
+		return fmt.Errorf("unsupported auth.type %q (supported: basic, bearer)", auth.Type)
 	}
+}
+
+func targetSpecsFromStrings(targets []string) []TargetSpec {
+	specs := make([]TargetSpec, 0, len(targets))
+	for _, t := range targets {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		name := ""
+		targetURL := t
+		if strings.Contains(t, "=") {
+			split := strings.SplitN(t, "=", 2)
+			name = split[0]
+			targetURL = split[1]
+		}
+		specs = append(specs, TargetSpec{Name: name, URL: targetURL, Auth: nil})
+	}
+	return specs
+}
+
+func loadTargetsConfig(configPath string) ([]TargetSpec, error) {
+	absPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, err
+	}
+	var cfg TargetsConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return nil, err
+	}
+	specs := make([]TargetSpec, 0, len(cfg.Targets))
+	for i, t := range cfg.Targets {
+		if strings.TrimSpace(t.URL) == "" {
+			return nil, fmt.Errorf("targets[%d].url is required", i)
+		}
+		specs = append(specs, TargetSpec{
+			Name: strings.TrimSpace(t.Name),
+			URL:  strings.TrimSpace(t.URL),
+			Auth: t.Auth,
+		})
+	}
+	return specs, nil
 }
 
 func getMetricFamilies(sourceData io.Reader) (map[string]*io_prometheus_client.MetricFamily, error) {
