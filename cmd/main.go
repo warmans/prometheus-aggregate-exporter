@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"github.com/prometheus/client_golang/prometheus"
 	"log"
@@ -23,6 +25,7 @@ import (
 
 	"github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"gopkg.in/yaml.v3"
 )
 
 // Config is used to store the configuration of this program
@@ -363,22 +366,22 @@ type TargetSpec struct {
 }
 
 type TargetsConfig struct {
-	Targets []TargetConfig `json:"targets"`
+	Targets []TargetConfig `json:"targets" yaml:"targets"`
 }
 
 type TargetConfig struct {
-	Name string      `json:"name"`
-	URL  string      `json:"url"`
-	Auth *AuthConfig `json:"auth"`
+	Name string      `json:"name" yaml:"name"`
+	URL  string      `json:"url" yaml:"url"`
+	Auth *AuthConfig `json:"auth" yaml:"auth"`
 }
 
 type AuthConfig struct {
-	Type         string `json:"type"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	PasswordFile string `json:"password_file"`
-	Token        string `json:"token"`
-	TokenFile    string `json:"token_file"`
+	Type         string `json:"type" yaml:"type"`
+	Username     string `json:"username" yaml:"username"`
+	Password     string `json:"password" yaml:"password"`
+	PasswordFile string `json:"password_file" yaml:"password_file"`
+	Token        string `json:"token" yaml:"token"`
+	TokenFile    string `json:"token_file" yaml:"token_file"`
 }
 
 type Aggregator struct {
@@ -726,22 +729,170 @@ func loadTargetsConfig(configPath string) ([]TargetSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	var cfg TargetsConfig
-	if err := json.Unmarshal(b, &cfg); err != nil {
+	cfg, baseDir, err := decodeTargetsConfig(absPath, b)
+	if err != nil {
 		return nil, err
 	}
+	if errs := validateTargetsConfig(cfg); len(errs) > 0 {
+		return nil, formatConfigValidationError(absPath, errs)
+	}
+
 	specs := make([]TargetSpec, 0, len(cfg.Targets))
-	for i, t := range cfg.Targets {
-		if strings.TrimSpace(t.URL) == "" {
-			return nil, fmt.Errorf("targets[%d].url is required", i)
+	for _, t := range cfg.Targets {
+		auth := t.Auth
+		if auth != nil {
+			if auth.PasswordFile != "" && !filepath.IsAbs(auth.PasswordFile) {
+				auth.PasswordFile = filepath.Join(baseDir, auth.PasswordFile)
+			}
+			if auth.TokenFile != "" && !filepath.IsAbs(auth.TokenFile) {
+				auth.TokenFile = filepath.Join(baseDir, auth.TokenFile)
+			}
 		}
 		specs = append(specs, TargetSpec{
 			Name: strings.TrimSpace(t.Name),
 			URL:  strings.TrimSpace(t.URL),
-			Auth: t.Auth,
+			Auth: auth,
 		})
 	}
 	return specs, nil
+}
+
+type configFieldError struct {
+	Path    string
+	Message string
+}
+
+func decodeTargetsConfig(absPath string, b []byte) (*TargetsConfig, string, error) {
+	ext := strings.ToLower(filepath.Ext(absPath))
+	cfg := &TargetsConfig{}
+
+	switch ext {
+	case ".json":
+		if err := decodeTargetsConfigJSON(b, cfg); err != nil {
+			return nil, "", fmt.Errorf("failed to parse JSON: %s", err.Error())
+		}
+	case ".yml", ".yaml":
+		if err := decodeTargetsConfigYAML(b, cfg); err != nil {
+			return nil, "", fmt.Errorf("failed to parse YAML: %s", err.Error())
+		}
+	default:
+		// If extension is unknown, try JSON then YAML for convenience.
+		if err := decodeTargetsConfigJSON(b, cfg); err != nil {
+			cfg = &TargetsConfig{}
+			if err2 := decodeTargetsConfigYAML(b, cfg); err2 != nil {
+				return nil, "", fmt.Errorf("unsupported config extension %q; JSON error: %s; YAML error: %s", ext, err.Error(), err2.Error())
+			}
+		}
+	}
+
+	return cfg, filepath.Dir(absPath), nil
+}
+
+func decodeTargetsConfigJSON(b []byte, out *TargetsConfig) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out); err != nil {
+		return formatJSONDecodeError(err)
+	}
+	// Ensure there is no trailing data.
+	var extra any
+	if err := dec.Decode(&extra); err == nil {
+		return fmt.Errorf("unexpected trailing JSON data")
+	} else if !errors.Is(err, io.EOF) {
+		return formatJSONDecodeError(err)
+	}
+	return nil
+}
+
+func decodeTargetsConfigYAML(b []byte, out *TargetsConfig) error {
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	// Prevent multiple YAML documents (--- ... ---).
+	var extra any
+	if err := dec.Decode(&extra); err == nil {
+		return fmt.Errorf("multiple YAML documents are not supported")
+	} else if !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+
+func formatJSONDecodeError(err error) error {
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return fmt.Errorf("syntax error near byte offset %d", syntaxErr.Offset)
+	}
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		if typeErr.Field != "" {
+			return fmt.Errorf("invalid type for field %q near byte offset %d", typeErr.Field, typeErr.Offset)
+		}
+		return fmt.Errorf("invalid JSON type near byte offset %d", typeErr.Offset)
+	}
+	return err
+}
+
+func validateTargetsConfig(cfg *TargetsConfig) []configFieldError {
+	errs := []configFieldError{}
+	if cfg == nil {
+		return []configFieldError{{Path: "", Message: "config is empty"}}
+	}
+	if len(cfg.Targets) == 0 {
+		errs = append(errs, configFieldError{Path: "targets", Message: "must contain at least one entry"})
+		return errs
+	}
+	for i, t := range cfg.Targets {
+		p := fmt.Sprintf("targets[%d]", i)
+		if strings.TrimSpace(t.URL) == "" {
+			errs = append(errs, configFieldError{Path: p + ".url", Message: "is required"})
+			continue
+		}
+		u, err := url.Parse(strings.TrimSpace(t.URL))
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			errs = append(errs, configFieldError{Path: p + ".url", Message: "must be a valid absolute URL (scheme + host)"})
+		} else if u.User != nil {
+			errs = append(errs, configFieldError{Path: p + ".url", Message: "must not include credentials (userinfo); use auth.* instead"})
+		}
+
+		if t.Auth == nil {
+			continue
+		}
+
+		mode := authModeFromConfig(t.Auth.Type, t.Auth.Username, t.Auth.Password, t.Auth.PasswordFile, t.Auth.Token, t.Auth.TokenFile)
+		switch mode {
+		case "":
+			// empty auth block treated as no auth
+		case "basic":
+			if strings.TrimSpace(t.Auth.Username) == "" {
+				errs = append(errs, configFieldError{Path: p + ".auth.username", Message: "is required for basic auth"})
+			}
+			if strings.TrimSpace(t.Auth.Password) == "" && strings.TrimSpace(t.Auth.PasswordFile) == "" {
+				errs = append(errs, configFieldError{Path: p + ".auth.password", Message: "password or password_file is required for basic auth"})
+			}
+		case "bearer":
+			if strings.TrimSpace(t.Auth.Token) == "" && strings.TrimSpace(t.Auth.TokenFile) == "" {
+				errs = append(errs, configFieldError{Path: p + ".auth.token", Message: "token or token_file is required for bearer auth"})
+			}
+		default:
+			errs = append(errs, configFieldError{Path: p + ".auth.type", Message: fmt.Sprintf("unsupported value %q (supported: basic, bearer)", t.Auth.Type)})
+		}
+	}
+	return errs
+}
+
+func formatConfigValidationError(absPath string, errs []configFieldError) error {
+	lines := make([]string, 0, len(errs))
+	for _, e := range errs {
+		if e.Path == "" {
+			lines = append(lines, "- "+e.Message)
+		} else {
+			lines = append(lines, fmt.Sprintf("- %s: %s", e.Path, e.Message))
+		}
+	}
+	return fmt.Errorf("invalid targets config %q:\n%s", absPath, strings.Join(lines, "\n"))
 }
 
 func getMetricFamilies(sourceData io.Reader) (map[string]*io_prometheus_client.MetricFamily, error) {

@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 )
 
 const (
@@ -28,8 +29,14 @@ func main() {
 		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
 	})
 
-	log.Println("Listening with Basic/Bearer Auth on :3011 ...")
-	if err := http.ListenAndServe(":3011", nil); err != nil {
+	port := os.Getenv("AUTH_FIXTURE_PORT")
+	if port == "" {
+		port = "3011"
+	}
+	addr := ":" + port
+
+	log.Printf("Listening with Basic/Bearer Auth on %s ...", addr)
+	if err := http.ListenAndServe(addr, nil); err != nil {
 		panic(err)
 	}
 }

@@ -20,7 +20,7 @@ the aggregate view.
     	comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values
 
   -targets.config (TARGETS_CONFIG) string
-        Path to JSON config file for per-target configuration (auth, etc.)
+        Path to JSON/YAML config file for per-target configuration (auth, etc.)
     	
   -targets.label (TARGETS_LABEL) bool
     	Add a label to metrics to show their origin target (default true)
