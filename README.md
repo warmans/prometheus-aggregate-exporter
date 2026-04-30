@@ -185,9 +185,9 @@ Or (less secure) with plain token flag:
 
      bin/prometheus-aggregate-exporter -targets="secure=https://localhost:9200/_prometheus/metrics" -targets.auth.type="bearer" -targets.auth.token="your-token"
 
-#### Per-target auth via JSON config
+#### Per-target auth/TLS via JSON or YAML config
 
-If you need different auth credentials per target, use `-targets.config`:
+If you need different auth credentials (and per-target TLS behavior), use `-targets.config`:
 
 ```json
 {
@@ -195,6 +195,9 @@ If you need different auth credentials per target, use `-targets.config`:
     {
       "name": "secure_basic",
       "url": "https://localhost:9200/_prometheus/metrics",
+      "tls": {
+        "insecure_skip_verify": true
+      },
       "auth": {
         "type": "basic",
         "username": "prometheus_scraper",
@@ -218,6 +221,7 @@ If you need different auth credentials per target, use `-targets.config`:
 ```
 
 Targets defined via `-targets` continue to work as before. When `-targets.config` is set, targets from the config are included alongside `-targets` and dynamically registered targets.
+Use `tls.insecure_skip_verify: true` only for the specific targets that need it.
 
 #### Dynamic registration 
 

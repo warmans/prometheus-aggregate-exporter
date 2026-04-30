@@ -51,6 +51,9 @@ cat > "$BUILD_DIR/test-targets-config.json" <<'EOF'
     {
       "name": "secure_basic",
       "url": "http://localhost:FIXTURE_PORT/histogram.txt",
+      "tls": {
+        "insecure_skip_verify": true
+      },
       "auth": {
         "type": "basic",
         "username": "prometheus_scraper",
@@ -79,6 +82,8 @@ cat > "$BUILD_DIR/test-targets-config.yaml" <<'EOF'
 targets:
   - name: secure_basic
     url: http://localhost:FIXTURE_PORT/histogram.txt
+    tls:
+      insecure_skip_verify: true
     auth:
       type: basic
       username: prometheus_scraper

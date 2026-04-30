@@ -363,6 +363,7 @@ type TargetSpec struct {
 	Name string
 	URL  string
 	Auth *AuthConfig
+	TLS  *TLSConfig
 }
 
 type TargetsConfig struct {
@@ -373,6 +374,7 @@ type TargetConfig struct {
 	Name string      `json:"name" yaml:"name"`
 	URL  string      `json:"url" yaml:"url"`
 	Auth *AuthConfig `json:"auth" yaml:"auth"`
+	TLS  *TLSConfig  `json:"tls" yaml:"tls"`
 }
 
 type AuthConfig struct {
@@ -382,6 +384,10 @@ type AuthConfig struct {
 	PasswordFile string `json:"password_file" yaml:"password_file"`
 	Token        string `json:"token" yaml:"token"`
 	TokenFile    string `json:"token_file" yaml:"token_file"`
+}
+
+type TLSConfig struct {
+	InsecureSkipVerify bool `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
 }
 
 type Aggregator struct {
@@ -555,7 +561,8 @@ func (f *Aggregator) fetch(target TargetSpec, resultChan chan *Result) {
 		}
 		return
 	}
-	res, err := f.HTTP.Do(req)
+	client := f.httpClientForTarget(target)
+	res, err := client.Do(req)
 
 	result := &Result{URL: hideURLUserInfo(targetURL), Name: name, SecondsTaken: time.Since(startTime).Seconds(), Error: nil}
 	if res != nil {
@@ -701,6 +708,31 @@ func (f *Aggregator) applyAuth(req *http.Request, auth *AuthConfig) error {
 	}
 }
 
+func (f *Aggregator) httpClientForTarget(target TargetSpec) *http.Client {
+	if target.TLS == nil || !target.TLS.InsecureSkipVerify {
+		return f.HTTP
+	}
+
+	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+	if f.HTTP != nil && f.HTTP.Transport != nil {
+		if t, ok := f.HTTP.Transport.(*http.Transport); ok {
+			baseTransport = t.Clone()
+		}
+	}
+
+	if baseTransport.TLSClientConfig == nil {
+		baseTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	} else {
+		baseTransport.TLSClientConfig = baseTransport.TLSClientConfig.Clone()
+		baseTransport.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	return &http.Client{
+		Timeout:   f.HTTP.Timeout,
+		Transport: baseTransport,
+	}
+}
+
 func targetSpecsFromStrings(targets []string) []TargetSpec {
 	specs := make([]TargetSpec, 0, len(targets))
 	for _, t := range targets {
@@ -752,6 +784,7 @@ func loadTargetsConfig(configPath string) ([]TargetSpec, error) {
 			Name: strings.TrimSpace(t.Name),
 			URL:  strings.TrimSpace(t.URL),
 			Auth: auth,
+			TLS:  t.TLS,
 		})
 	}
 	return specs, nil
