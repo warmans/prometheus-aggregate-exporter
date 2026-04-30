@@ -45,6 +45,9 @@ jobs:
       - name: Go tests
         run: go test -v ./...
 
+      - name: Auth integration test
+        run: make test.auth
+
   build:
     runs-on: ubuntu-latest
     steps:

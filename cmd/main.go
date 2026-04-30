@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"syscall"
 	"time"
@@ -46,6 +47,10 @@ var (
 	targetScrapeTimeout    *int
 	targets                *string
 	insecureSkipVerifyFlag *bool
+	targetsTLSInsecureSkip *bool
+	authUsername           *string
+	authPassword           *string
+	authPasswordFile       *string
 	cacheFilePath          *string
 	dynamicRegistration    *bool
 )
@@ -65,6 +70,10 @@ func init() {
 	targetUpMetric = boolFlag(flag.CommandLine, "targets.up", false, "Enables an additional reachability metric for each downstream exporter.")
 
 	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "Disable verification of TLS certificates")
+	targetsTLSInsecureSkip = boolFlag(flag.CommandLine, "targets.tls.insecure_skip_verify", false, "Skip TLS verification for target scraping")
+	authUsername = stringFlag(flag.CommandLine, "targets.auth.username", "", "Username for basic auth")
+	authPassword = stringFlag(flag.CommandLine, "targets.auth.password", "", "Password for basic auth")
+	authPasswordFile = stringFlag(flag.CommandLine, "targets.auth.password_file", "", "File containing password for basic auth")
 
 	dynamicRegistration = boolFlag(flag.CommandLine, "targets.dynamic.registration", false, "Enabled dynamic targets registration/deregistration using /register and /unregister endpoints")
 	cacheFilePath = stringFlag(flag.CommandLine, "targets.cache.path", "", "Path to file used as cache of targets usable in case of application restart with additional targets registered")
@@ -112,12 +121,17 @@ func main() {
 	}
 
 	// enable InsecureSkipVerify
-	if *insecureSkipVerifyFlag {
+	if *insecureSkipVerifyFlag || *targetsTLSInsecureSkip {
 		log.Printf("disabled verification of TLS certificates")
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
-	aggregator := &Aggregator{HTTP: &http.Client{Timeout: time.Duration(config.Timeout) * time.Millisecond}}
+	aggregator := &Aggregator{
+		HTTP:             &http.Client{Timeout: time.Duration(config.Timeout) * time.Millisecond},
+		AuthUsername:     *authUsername,
+		AuthPassword:     *authPassword,
+		AuthPasswordFile: *authPasswordFile,
+	}
 
 	targets := NewTargets(config.Targets, cacheFile)
 
@@ -165,9 +179,13 @@ func main() {
 				schema = "http"
 			}
 
-			uri := schema + "://" + address
+			uri, err := buildTargetURI(schema, address)
+			if err != nil {
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
 			targets.AddTarget(name + "=" + uri)
-			log.Printf("Registered target %s with name %s\n", uri, name)
+			log.Printf("Registered target %s with name %s\n", maskTargetUserInfo(uri), name)
 		})
 		mux.HandleFunc("/unregister", func(rw http.ResponseWriter, r *http.Request) {
 			defer r.Body.Close()
@@ -188,9 +206,13 @@ func main() {
 				schema = "http"
 			}
 
-			uri := schema + "://" + address
+			uri, err := buildTargetURI(schema, address)
+			if err != nil {
+				http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
 			targets.RemoveTarget(name + "=" + uri)
-			log.Printf("Unregistered target %s with name %s\n", uri, name)
+			log.Printf("Unregistered target %s with name %s\n", maskTargetUserInfo(uri), name)
 		})
 	}
 
@@ -321,7 +343,10 @@ type Result struct {
 }
 
 type Aggregator struct {
-	HTTP *http.Client
+	HTTP             *http.Client
+	AuthUsername     string
+	AuthPassword     string
+	AuthPasswordFile string
 }
 
 func readLines(path string) ([]string, error) {
@@ -454,19 +479,55 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 }
 
 func (f *Aggregator) fetch(target string, resultChan chan *Result) {
-
-	s := strings.Split(target, "=")
-	url := s[0]
-	name := s[0]
-	if len(s) > 1 {
-		url = strings.Join(s[1:], "=")
+	name, targetURL, err := parseTarget(target)
+	if err != nil {
+		resultChan <- &Result{
+			Name:         target,
+			URL:          target,
+			SecondsTaken: 0,
+			Error:        fmt.Errorf("failed to parse target %s due to error: %s", target, err.Error()),
+		}
+		return
 	}
 
 	startTime := time.Now()
-	res, err := f.HTTP.Get(url)
+	req, err := http.NewRequest(http.MethodGet, targetURL.String(), nil)
+	if err != nil {
+		resultChan <- &Result{
+			Name:         name,
+			URL:          hideURLUserInfo(targetURL),
+			SecondsTaken: 0,
+			Error:        fmt.Errorf("failed to build request for target %s due to error: %s", hideURLUserInfo(targetURL), err.Error()),
+		}
+		return
+	}
+	if f.AuthUsername != "" {
+		password, err := f.resolveAuthPassword()
+		if err != nil {
+			resultChan <- &Result{
+				Name:         name,
+				URL:          hideURLUserInfo(targetURL),
+				SecondsTaken: 0,
+				Error:        fmt.Errorf("failed to resolve auth password for target %s due to error: %s", hideURLUserInfo(targetURL), err.Error()),
+			}
+			return
+		}
+		req.SetBasicAuth(f.AuthUsername, password)
+	}
+	res, err := f.HTTP.Do(req)
 
-	result := &Result{URL: url, Name: name, SecondsTaken: time.Since(startTime).Seconds(), Error: nil}
+	result := &Result{URL: hideURLUserInfo(targetURL), Name: name, SecondsTaken: time.Since(startTime).Seconds(), Error: nil}
 	if res != nil {
+		defer func() {
+			if closeErr := res.Body.Close(); closeErr != nil {
+				log.Printf("WARN: failed to close response body")
+			}
+		}()
+		if res.StatusCode >= http.StatusBadRequest {
+			result.Error = fmt.Errorf("failed to fetch URL %s due to status code: %d", hideURLUserInfo(targetURL), res.StatusCode)
+			resultChan <- result
+			return
+		}
 		result.MetricFamily, err = getMetricFamilies(res.Body)
 		if err != nil {
 			result.Error = fmt.Errorf("failed to add labels to target %s metrics: %s", target, err.Error())
@@ -478,6 +539,67 @@ func (f *Aggregator) fetch(target string, resultChan chan *Result) {
 		result.Error = fmt.Errorf("failed to fetch URL %s due to error: %s", target, err.Error())
 	}
 	resultChan <- result
+}
+
+func parseTarget(target string) (string, *url.URL, error) {
+	name := ""
+	targetURLRaw := target
+	if strings.Contains(target, "=") {
+		split := strings.SplitN(target, "=", 2)
+		name = split[0]
+		targetURLRaw = split[1]
+	}
+	targetURL, err := url.Parse(targetURLRaw)
+	if err != nil {
+		return "", nil, err
+	}
+	if targetURL.Scheme == "" || targetURL.Host == "" {
+		return "", nil, fmt.Errorf("target must include scheme and host")
+	}
+	if targetURL.User != nil {
+		return "", nil, fmt.Errorf("credentials in target URL are not allowed; use targets.auth.* flags")
+	}
+	if name == "" {
+		name = hideURLUserInfo(targetURL)
+	}
+	return name, targetURL, nil
+}
+
+func hideURLUserInfo(targetURL *url.URL) string {
+	u := *targetURL
+	u.User = nil
+	return u.String()
+}
+
+func buildTargetURI(schema string, address string) (string, error) {
+	targetURL, err := url.Parse(schema + "://" + address)
+	if err != nil {
+		return "", err
+	}
+	if targetURL.Scheme == "" || targetURL.Host == "" {
+		return "", fmt.Errorf("invalid target URI")
+	}
+	targetURL.User = nil
+	return targetURL.String(), nil
+}
+
+func maskTargetUserInfo(target string) string {
+	_, targetURL, err := parseTarget(target)
+	if err != nil {
+		return target
+	}
+	return hideURLUserInfo(targetURL)
+}
+
+func (f *Aggregator) resolveAuthPassword() (string, error) {
+	if f.AuthPasswordFile == "" {
+		return f.AuthPassword, nil
+	}
+	b, err := os.ReadFile(f.AuthPasswordFile)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 func getMetricFamilies(sourceData io.Reader) (map[string]*io_prometheus_client.MetricFamily, error) {

@@ -28,6 +28,18 @@ the aggregate view.
   -targets.scrape.timeout (TARGETS_SCRAPE_TIMEOUT) int
     	If a target metrics pages does not responde with this many miliseconds then timeout (default 1000)
 
+  -targets.auth.username (TARGETS_AUTH_USERNAME) string
+        Username for Basic Auth used for all targets
+
+  -targets.auth.password (TARGETS_AUTH_PASSWORD) string
+        Password for Basic Auth used for all targets
+
+  -targets.auth.password_file (TARGETS_AUTH_PASSWORD_FILE) string
+        Path to file containing password for Basic Auth (preferred over plain password flag)
+
+  -targets.tls.insecure_skip_verify (TARGETS_TLS_INSECURE_SKIP_VERIFY) bool
+        Skip TLS verification for target scraping (use with caution)
+
   -targets.dynamic.registration (TARGETS_DYNAMIC_REGISTRATION) bool
         Enabled dynamic targets registration/deregistration using /register and /unregister endpoints (default false)
                 
@@ -133,6 +145,23 @@ the metrics will rather look like:
 In case one of your target urls contains a `=` character (for instance consul agent's exporter is available at `/v1/agent/metrics?format=prometheus`), you **must** use the custom labelling notation:
 
      bin/prometheus-aggregate-exporter -targets="consul=http://localhost:8500/v1/agent/metrics?format=prometheus"
+
+#### Basic Auth targets
+
+To scrape endpoints that require HTTP Basic Auth, configure credentials with flags (or environment variables):
+
+     bin/prometheus-aggregate-exporter \
+       -targets="secure=https://localhost:9200/_prometheus/metrics" \
+       -targets.auth.username="prometheus_scraper" \
+       -targets.auth.password_file="/run/secrets/prometheus_password"
+
+Or (less secure) with plain password flag:
+
+     bin/prometheus-aggregate-exporter -targets="secure=https://localhost:9200/_prometheus/metrics" -targets.auth.username="prometheus_scraper" -targets.auth.password="YourSecurePassword123!"
+
+Targets with embedded credentials like `https://user:password@host/path` are rejected (fail-fast). Use `targets.auth.*` flags instead.
+
+Credentials are used for outgoing requests and are not exposed in metric labels.
 
 #### Dynamic registration 
 
