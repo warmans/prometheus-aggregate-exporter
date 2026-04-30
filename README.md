@@ -28,6 +28,9 @@ the aggregate view.
   -targets.scrape.timeout (TARGETS_SCRAPE_TIMEOUT) int
     	If a target metrics pages does not responde with this many miliseconds then timeout (default 1000)
 
+  -targets.auth.type (TARGETS_AUTH_TYPE) string
+        Authentication type for all targets: basic or bearer
+
   -targets.auth.username (TARGETS_AUTH_USERNAME) string
         Username for Basic Auth used for all targets
 
@@ -36,6 +39,12 @@ the aggregate view.
 
   -targets.auth.password_file (TARGETS_AUTH_PASSWORD_FILE) string
         Path to file containing password for Basic Auth (preferred over plain password flag)
+
+  -targets.auth.token (TARGETS_AUTH_TOKEN) string
+        Bearer token for all targets
+
+  -targets.auth.token_file (TARGETS_AUTH_TOKEN_FILE) string
+        Path to file containing bearer token (preferred over plain token flag)
 
   -targets.tls.insecure_skip_verify (TARGETS_TLS_INSECURE_SKIP_VERIFY) bool
         Skip TLS verification for target scraping (use with caution)
@@ -162,6 +171,19 @@ Or (less secure) with plain password flag:
 Targets with embedded credentials like `https://user:password@host/path` are rejected (fail-fast). Use `targets.auth.*` flags instead.
 
 Credentials are used for outgoing requests and are not exposed in metric labels.
+
+#### Bearer Auth targets
+
+To scrape endpoints that require Bearer token auth:
+
+     bin/prometheus-aggregate-exporter \
+       -targets="secure=https://localhost:9200/_prometheus/metrics" \
+       -targets.auth.type="bearer" \
+       -targets.auth.token_file="/run/secrets/prometheus_bearer_token"
+
+Or (less secure) with plain token flag:
+
+     bin/prometheus-aggregate-exporter -targets="secure=https://localhost:9200/_prometheus/metrics" -targets.auth.type="bearer" -targets.auth.token="your-token"
 
 #### Dynamic registration 
 

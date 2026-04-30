@@ -69,10 +69,11 @@ test.register:
 test.auth: build
 	mkdir -p .build
 	echo "test-password-123" > .build/test-auth-password.txt
-	cd fixture; go run serve_auth.go > ../.build/test-auth-fixture.log 2>&1 & echo $$! > ../.build/test-auth-fixture.pid
+	echo "test-bearer-token-123" > .build/test-auth-token.txt
+	cd fixture/auth; go run serve.go > ../../.build/test-auth-fixture.log 2>&1 & echo $$! > ../../.build/test-auth-fixture.pid
 	sleep 1
 	./bin/prometheus-aggregate-exporter \
-	-targets="bad=http://prometheus_scraper:test-password-123@localhost:3001/histogram.txt" \
+	-targets="bad=http://prometheus_scraper:test-password-123@localhost:3011/histogram.txt" \
 	-server.bind=":18080" \
 	-verbose=true > .build/test-auth-failfast.log 2>&1 & echo $$! > .build/test-auth-failfast.pid
 	sleep 1
@@ -80,7 +81,7 @@ test.auth: build
 	awk '/credentials in target URL are not allowed/ { found=1 } END { exit(found ? 0 : 1) }' .build/test-auth-failfast.log
 	kill $$(cat .build/test-auth-failfast.pid) 2>/dev/null || true
 	./bin/prometheus-aggregate-exporter \
-	-targets="secure=http://localhost:3001/histogram.txt" \
+	-targets="secure=http://localhost:3011/histogram.txt" \
 	-server.bind=":18081" \
 	-targets.auth.username="prometheus_scraper" \
 	-targets.auth.password_file=".build/test-auth-password.txt" \
@@ -89,6 +90,16 @@ test.auth: build
 	curl -s localhost:18081/metrics > .build/test-auth-success.metrics
 	awk '/^http_requests_total\{.*ae_source="secure"/ { found=1 } END { exit(found ? 0 : 1) }' .build/test-auth-success.metrics
 	kill $$(cat .build/test-auth-success.pid) 2>/dev/null || true
+	./bin/prometheus-aggregate-exporter \
+	-targets="secure=http://localhost:3011/histogram.txt" \
+	-server.bind=":18082" \
+	-targets.auth.type="bearer" \
+	-targets.auth.token_file=".build/test-auth-token.txt" \
+	-verbose=true > .build/test-auth-bearer.log 2>&1 & echo $$! > .build/test-auth-bearer.pid
+	sleep 1
+	curl -s localhost:18082/metrics > .build/test-auth-bearer.metrics
+	awk '/^http_requests_total\{.*ae_source="secure"/ { found=1 } END { exit(found ? 0 : 1) }' .build/test-auth-bearer.metrics
+	kill $$(cat .build/test-auth-bearer.pid) 2>/dev/null || true
 	kill $$(cat .build/test-auth-fixture.pid) 2>/dev/null || true
 
 # Packaging

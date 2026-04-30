@@ -48,9 +48,12 @@ var (
 	targets                *string
 	insecureSkipVerifyFlag *bool
 	targetsTLSInsecureSkip *bool
+	authType               *string
 	authUsername           *string
 	authPassword           *string
 	authPasswordFile       *string
+	authToken              *string
+	authTokenFile          *string
 	cacheFilePath          *string
 	dynamicRegistration    *bool
 )
@@ -71,9 +74,12 @@ func init() {
 
 	insecureSkipVerifyFlag = boolFlag(flag.CommandLine, "insecure-skip-verify", false, "Disable verification of TLS certificates")
 	targetsTLSInsecureSkip = boolFlag(flag.CommandLine, "targets.tls.insecure_skip_verify", false, "Skip TLS verification for target scraping")
+	authType = stringFlag(flag.CommandLine, "targets.auth.type", "", "Authentication type for all targets: basic or bearer")
 	authUsername = stringFlag(flag.CommandLine, "targets.auth.username", "", "Username for basic auth")
 	authPassword = stringFlag(flag.CommandLine, "targets.auth.password", "", "Password for basic auth")
 	authPasswordFile = stringFlag(flag.CommandLine, "targets.auth.password_file", "", "File containing password for basic auth")
+	authToken = stringFlag(flag.CommandLine, "targets.auth.token", "", "Bearer token for all targets")
+	authTokenFile = stringFlag(flag.CommandLine, "targets.auth.token_file", "", "File containing bearer token for all targets")
 
 	dynamicRegistration = boolFlag(flag.CommandLine, "targets.dynamic.registration", false, "Enabled dynamic targets registration/deregistration using /register and /unregister endpoints")
 	cacheFilePath = stringFlag(flag.CommandLine, "targets.cache.path", "", "Path to file used as cache of targets usable in case of application restart with additional targets registered")
@@ -128,9 +134,12 @@ func main() {
 
 	aggregator := &Aggregator{
 		HTTP:             &http.Client{Timeout: time.Duration(config.Timeout) * time.Millisecond},
+		AuthType:         *authType,
 		AuthUsername:     *authUsername,
 		AuthPassword:     *authPassword,
 		AuthPasswordFile: *authPasswordFile,
+		AuthToken:        *authToken,
+		AuthTokenFile:    *authTokenFile,
 	}
 
 	targets := NewTargets(config.Targets, cacheFile)
@@ -344,9 +353,12 @@ type Result struct {
 
 type Aggregator struct {
 	HTTP             *http.Client
+	AuthType         string
 	AuthUsername     string
 	AuthPassword     string
 	AuthPasswordFile string
+	AuthToken        string
+	AuthTokenFile    string
 }
 
 func readLines(path string) ([]string, error) {
@@ -501,18 +513,14 @@ func (f *Aggregator) fetch(target string, resultChan chan *Result) {
 		}
 		return
 	}
-	if f.AuthUsername != "" {
-		password, err := f.resolveAuthPassword()
-		if err != nil {
-			resultChan <- &Result{
-				Name:         name,
-				URL:          hideURLUserInfo(targetURL),
-				SecondsTaken: 0,
-				Error:        fmt.Errorf("failed to resolve auth password for target %s due to error: %s", hideURLUserInfo(targetURL), err.Error()),
-			}
-			return
+	if err := f.applyAuth(req); err != nil {
+		resultChan <- &Result{
+			Name:         name,
+			URL:          hideURLUserInfo(targetURL),
+			SecondsTaken: 0,
+			Error:        fmt.Errorf("failed to apply auth for target %s due to error: %s", hideURLUserInfo(targetURL), err.Error()),
 		}
-		req.SetBasicAuth(f.AuthUsername, password)
+		return
 	}
 	res, err := f.HTTP.Do(req)
 
@@ -600,6 +608,59 @@ func (f *Aggregator) resolveAuthPassword() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+func (f *Aggregator) resolveAuthToken() (string, error) {
+	if f.AuthTokenFile == "" {
+		return f.AuthToken, nil
+	}
+	b, err := os.ReadFile(f.AuthTokenFile)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+func (f *Aggregator) authMode() string {
+	mode := strings.ToLower(strings.TrimSpace(f.AuthType))
+	if mode == "" {
+		if f.AuthUsername != "" || f.AuthPassword != "" || f.AuthPasswordFile != "" {
+			return "basic"
+		}
+		if f.AuthToken != "" || f.AuthTokenFile != "" {
+			return "bearer"
+		}
+	}
+	return mode
+}
+
+func (f *Aggregator) applyAuth(req *http.Request) error {
+	switch f.authMode() {
+	case "":
+		return nil
+	case "basic":
+		if f.AuthUsername == "" {
+			return fmt.Errorf("targets.auth.username is required for basic auth")
+		}
+		password, err := f.resolveAuthPassword()
+		if err != nil {
+			return err
+		}
+		req.SetBasicAuth(f.AuthUsername, password)
+		return nil
+	case "bearer":
+		token, err := f.resolveAuthToken()
+		if err != nil {
+			return err
+		}
+		if token == "" {
+			return fmt.Errorf("targets.auth.token or targets.auth.token_file is required for bearer auth")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		return nil
+	default:
+		return fmt.Errorf("unsupported targets.auth.type %q (supported: basic, bearer)", f.AuthType)
+	}
 }
 
 func getMetricFamilies(sourceData io.Reader) (map[string]*io_prometheus_client.MetricFamily, error) {
