@@ -18,6 +18,9 @@ the aggregate view.
     	
   -targets (TARGETS) string
     	comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values
+
+  -targets.config (TARGETS_CONFIG) string
+        Path to JSON/YAML config file for per-target configuration (auth, etc.)
     	
   -targets.label (TARGETS_LABEL) bool
     	Add a label to metrics to show their origin target (default true)
@@ -133,6 +136,46 @@ the metrics will rather look like:
 In case one of your target urls contains a `=` character (for instance consul agent's exporter is available at `/v1/agent/metrics?format=prometheus`), you **must** use the custom labelling notation:
 
      bin/prometheus-aggregate-exporter -targets="consul=http://localhost:8500/v1/agent/metrics?format=prometheus"
+
+#### Per-target auth/TLS via JSON or YAML config
+
+Advanced auth/TLS configuration is config-file only. Use `-targets.config`:
+
+```json
+{
+  "targets": [
+    {
+      "name": "secure_basic",
+      "url": "https://localhost:9200/_prometheus/metrics",
+      "tls": {
+        "insecure_skip_verify": true
+      },
+      "auth": {
+        "type": "basic",
+        "username": "prometheus_scraper",
+        "password_file": "/run/secrets/prometheus_password"
+      }
+    },
+    {
+      "name": "secure_bearer",
+      "url": "https://localhost:9200/_prometheus/metrics",
+      "auth": {
+        "type": "bearer",
+        "token_file": "/run/secrets/prometheus_bearer_token"
+      }
+    },
+    {
+      "name": "public",
+      "url": "http://localhost:8081/metrics"
+    }
+  ]
+}
+```
+
+Targets defined via `-targets` continue to work as before. When `-targets.config` is set, targets from the config are included alongside `-targets` and dynamically registered targets.
+If the same target URL is defined both in config and in `-targets`, config entry has priority (flag duplicate is skipped).
+Use `tls.insecure_skip_verify: true` only for the specific targets that need it.
+Targets with embedded credentials like `https://user:password@host/path` are rejected (fail-fast). Use config `auth` settings instead.
 
 #### Dynamic registration 
 

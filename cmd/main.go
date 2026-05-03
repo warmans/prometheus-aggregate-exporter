@@ -2,10 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
+	"errors"
 	"flag"
 	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -14,12 +18,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"gopkg.in/yaml.v3"
 )
 
 // Config is used to store the configuration of this program
@@ -45,6 +51,7 @@ var (
 	tlsServerKey           *string
 	targetScrapeTimeout    *int
 	targets                *string
+	targetsConfigPath      *string
 	insecureSkipVerifyFlag *bool
 	cacheFilePath          *string
 	dynamicRegistration    *bool
@@ -60,6 +67,7 @@ func init() {
 
 	targetScrapeTimeout = intFlag(flag.CommandLine, "targets.scrape.timeout", 1000, "If a target metrics pages does not responde with this many miliseconds then timeout")
 	targets = stringFlag(flag.CommandLine, "targets", "", "comma separated list of targets e.g. http://localhost:8081/metrics,http://localhost:8082/metrics or url1=http://localhost:8081/metrics,url2=http://localhost:8082/metrics for custom label values")
+	targetsConfigPath = stringFlag(flag.CommandLine, "targets.config", "", "Path to JSON config file for per-target configuration (auth, etc.)")
 	targetLabelsEnabled = boolFlag(flag.CommandLine, "targets.label", true, "Add a label to metrics to show their origin target")
 	targetLabelName = stringFlag(flag.CommandLine, "targets.label.name", "ae_source", "Label name to use if a target name label is appended to metrics")
 	targetUpMetric = boolFlag(flag.CommandLine, "targets.up", false, "Enables an additional reachability metric for each downstream exporter.")
@@ -89,8 +97,17 @@ func main() {
 		Targets: filterEmptyStrings(strings.Split(*targets, ",")),
 	}
 
+	var configTargets []TargetSpec
+	if targetsConfigPath != nil && *targetsConfigPath != "" {
+		loaded, err := loadTargetsConfig(*targetsConfigPath)
+		if err != nil {
+			log.Fatalf("FATAL: Failed to load targets config: %s", err.Error())
+		}
+		configTargets = loaded
+	}
+
 	if len(config.Targets) < 1 {
-		if *dynamicRegistration {
+		if len(configTargets) > 0 || *dynamicRegistration {
 			log.Print("No initial targets configured, using registration only")
 		} else {
 			log.Fatal("FATAL: No initial targets configured and dynamic registration is disabled.")
@@ -129,16 +146,17 @@ func main() {
 			http.Error(rw, "Bad Request", http.StatusBadRequest)
 			return
 		}
+		allSpecs := mergeTargetSpecs(configTargets, targetSpecsFromStrings(targets.Targets()))
+
 		if t := r.Form.Get("t"); t != "" {
 			targetKey, err := strconv.Atoi(t)
-			targetList := targets.Targets()
-			if err != nil || len(targetList)-1 < targetKey {
+			if err != nil || len(allSpecs)-1 < targetKey {
 				http.Error(rw, "Bad Request", http.StatusBadRequest)
 				return
 			}
-			aggregator.Aggregate([]string{targetList[targetKey]}, rw)
+			aggregator.Aggregate([]TargetSpec{allSpecs[targetKey]}, rw)
 		} else {
-			aggregator.Aggregate(targets.Targets(), rw)
+			aggregator.Aggregate(allSpecs, rw)
 		}
 	})
 	mux.HandleFunc("/alive", func(rw http.ResponseWriter, r *http.Request) {
@@ -320,6 +338,37 @@ type Result struct {
 	Error        error
 }
 
+type TargetSpec struct {
+	Name string
+	URL  string
+	Auth *AuthConfig
+	TLS  *TLSConfig
+}
+
+type TargetsConfig struct {
+	Targets []TargetConfig `json:"targets" yaml:"targets"`
+}
+
+type TargetConfig struct {
+	Name string      `json:"name" yaml:"name"`
+	URL  string      `json:"url" yaml:"url"`
+	Auth *AuthConfig `json:"auth" yaml:"auth"`
+	TLS  *TLSConfig  `json:"tls" yaml:"tls"`
+}
+
+type AuthConfig struct {
+	Type         string `json:"type" yaml:"type"`
+	Username     string `json:"username" yaml:"username"`
+	Password     string `json:"password" yaml:"password"`
+	PasswordFile string `json:"password_file" yaml:"password_file"`
+	Token        string `json:"token" yaml:"token"`
+	TokenFile    string `json:"token_file" yaml:"token_file"`
+}
+
+type TLSConfig struct {
+	InsecureSkipVerify bool `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
+}
+
 type Aggregator struct {
 	HTTP *http.Client
 }
@@ -371,7 +420,7 @@ func writeLines(lines []string, path string) error {
 	return w.Flush()
 }
 
-func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
+func (f *Aggregator) Aggregate(targets []TargetSpec, output io.Writer) {
 
 	resultChan := make(chan *Result, 100)
 
@@ -453,31 +502,397 @@ func (f *Aggregator) Aggregate(targets []string, output io.Writer) {
 	}(len(targets), resultChan)
 }
 
-func (f *Aggregator) fetch(target string, resultChan chan *Result) {
-
-	s := strings.Split(target, "=")
-	url := s[0]
-	name := s[0]
-	if len(s) > 1 {
-		url = strings.Join(s[1:], "=")
+func (f *Aggregator) fetch(target TargetSpec, resultChan chan *Result) {
+	name, targetURL, err := parseTarget(target.Name, target.URL)
+	if err != nil {
+		resultChan <- &Result{
+			Name:         target.Name,
+			URL:          target.URL,
+			SecondsTaken: 0,
+			Error:        fmt.Errorf("failed to parse target %s due to error: %s", target.URL, err.Error()),
+		}
+		return
 	}
 
 	startTime := time.Now()
-	res, err := f.HTTP.Get(url)
+	req, err := http.NewRequest(http.MethodGet, targetURL.String(), nil)
+	if err != nil {
+		resultChan <- &Result{
+			Name:         name,
+			URL:          hideURLUserInfo(targetURL),
+			SecondsTaken: 0,
+			Error:        fmt.Errorf("failed to build request for target %s due to error: %s", hideURLUserInfo(targetURL), err.Error()),
+		}
+		return
+	}
+	if err := f.applyAuth(req, target.Auth); err != nil {
+		resultChan <- &Result{
+			Name:         name,
+			URL:          hideURLUserInfo(targetURL),
+			SecondsTaken: 0,
+			Error:        fmt.Errorf("failed to apply auth for target %s due to error: %s", hideURLUserInfo(targetURL), err.Error()),
+		}
+		return
+	}
+	client := f.httpClientForTarget(target)
+	res, err := client.Do(req)
 
-	result := &Result{URL: url, Name: name, SecondsTaken: time.Since(startTime).Seconds(), Error: nil}
+	result := &Result{URL: hideURLUserInfo(targetURL), Name: name, SecondsTaken: time.Since(startTime).Seconds(), Error: nil}
 	if res != nil {
+		defer func() {
+			if closeErr := res.Body.Close(); closeErr != nil {
+				log.Printf("WARN: failed to close response body")
+			}
+		}()
+		if res.StatusCode >= http.StatusBadRequest {
+			result.Error = fmt.Errorf("failed to fetch URL %s due to status code: %d", hideURLUserInfo(targetURL), res.StatusCode)
+			resultChan <- result
+			return
+		}
 		result.MetricFamily, err = getMetricFamilies(res.Body)
 		if err != nil {
-			result.Error = fmt.Errorf("failed to add labels to target %s metrics: %s", target, err.Error())
+			result.Error = fmt.Errorf("failed to add labels to target %s metrics: %s", hideURLUserInfo(targetURL), err.Error())
 			resultChan <- result
 			return
 		}
 	}
 	if err != nil {
-		result.Error = fmt.Errorf("failed to fetch URL %s due to error: %s", target, err.Error())
+		result.Error = fmt.Errorf("failed to fetch URL %s due to error: %s", hideURLUserInfo(targetURL), err.Error())
 	}
 	resultChan <- result
+}
+
+func parseTarget(name string, targetURLRaw string) (string, *url.URL, error) {
+	targetURL, err := url.Parse(targetURLRaw)
+	if err != nil {
+		return "", nil, err
+	}
+	if targetURL.Scheme == "" || targetURL.Host == "" {
+		return "", nil, fmt.Errorf("target must include scheme and host")
+	}
+	if targetURL.User != nil {
+		return "", nil, fmt.Errorf("credentials in target URL are not allowed; use targets.config auth settings")
+	}
+	if name == "" {
+		name = hideURLUserInfo(targetURL)
+	}
+	return name, targetURL, nil
+}
+
+func hideURLUserInfo(targetURL *url.URL) string {
+	u := *targetURL
+	u.User = nil
+	return u.String()
+}
+
+func resolveSecretValue(value string, filePath string) (string, error) {
+	if filePath == "" {
+		return value, nil
+	}
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+func (f *Aggregator) resolveAuthPassword(auth *AuthConfig) (string, error) {
+	return resolveSecretValue(auth.Password, auth.PasswordFile)
+}
+
+func (f *Aggregator) resolveAuthToken(auth *AuthConfig) (string, error) {
+	return resolveSecretValue(auth.Token, auth.TokenFile)
+}
+
+func authModeFromConfig(authType string, username string, password string, passwordFile string, token string, tokenFile string) string {
+	mode := strings.ToLower(strings.TrimSpace(authType))
+	if mode == "" {
+		if username != "" || password != "" || passwordFile != "" {
+			return "basic"
+		}
+		if token != "" || tokenFile != "" {
+			return "bearer"
+		}
+	}
+	return mode
+}
+
+func (f *Aggregator) applyAuth(req *http.Request, auth *AuthConfig) error {
+	if auth == nil {
+		return nil
+	}
+
+	switch authModeFromConfig(auth.Type, auth.Username, auth.Password, auth.PasswordFile, auth.Token, auth.TokenFile) {
+	case "":
+		return nil
+	case "basic":
+		if auth.Username == "" {
+			return fmt.Errorf("auth.username is required for basic auth")
+		}
+		password, err := f.resolveAuthPassword(auth)
+		if err != nil {
+			return err
+		}
+		req.SetBasicAuth(auth.Username, password)
+		return nil
+	case "bearer":
+		token, err := f.resolveAuthToken(auth)
+		if err != nil {
+			return err
+		}
+		if token == "" {
+			return fmt.Errorf("auth.token or auth.token_file is required for bearer auth")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		return nil
+	default:
+		return fmt.Errorf("unsupported auth.type %q (supported: basic, bearer)", auth.Type)
+	}
+}
+
+func (f *Aggregator) httpClientForTarget(target TargetSpec) *http.Client {
+	if target.TLS == nil || !target.TLS.InsecureSkipVerify {
+		return f.HTTP
+	}
+
+	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+	if f.HTTP != nil && f.HTTP.Transport != nil {
+		if t, ok := f.HTTP.Transport.(*http.Transport); ok {
+			baseTransport = t.Clone()
+		}
+	}
+
+	if baseTransport.TLSClientConfig == nil {
+		baseTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	} else {
+		baseTransport.TLSClientConfig = baseTransport.TLSClientConfig.Clone()
+		baseTransport.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	return &http.Client{
+		Timeout:   f.HTTP.Timeout,
+		Transport: baseTransport,
+	}
+}
+
+func targetSpecsFromStrings(targets []string) []TargetSpec {
+	specs := make([]TargetSpec, 0, len(targets))
+	for _, t := range targets {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		name := ""
+		targetURL := t
+		if strings.Contains(t, "=") {
+			split := strings.SplitN(t, "=", 2)
+			name = split[0]
+			targetURL = split[1]
+		}
+		specs = append(specs, TargetSpec{Name: name, URL: targetURL, Auth: nil})
+	}
+	return specs
+}
+
+func mergeTargetSpecs(configTargets []TargetSpec, otherTargets []TargetSpec) []TargetSpec {
+	merged := append([]TargetSpec{}, configTargets...)
+	seen := map[string]struct{}{}
+
+	for _, t := range configTargets {
+		seen[targetDedupKey(t)] = struct{}{}
+	}
+
+	for _, t := range otherTargets {
+		key := targetDedupKey(t)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, t)
+	}
+
+	return merged
+}
+
+func targetDedupKey(t TargetSpec) string {
+	// URL is the primary identity of a target across config and flag-based inputs.
+	return strings.TrimSpace(t.URL)
+}
+
+func loadTargetsConfig(configPath string) ([]TargetSpec, error) {
+	absPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, err
+	}
+	cfg, baseDir, err := decodeTargetsConfig(absPath, b)
+	if err != nil {
+		return nil, err
+	}
+	if errs := validateTargetsConfig(cfg); len(errs) > 0 {
+		return nil, formatConfigValidationError(absPath, errs)
+	}
+
+	specs := make([]TargetSpec, 0, len(cfg.Targets))
+	for _, t := range cfg.Targets {
+		auth := t.Auth
+		if auth != nil {
+			if auth.PasswordFile != "" && !filepath.IsAbs(auth.PasswordFile) {
+				auth.PasswordFile = filepath.Join(baseDir, auth.PasswordFile)
+			}
+			if auth.TokenFile != "" && !filepath.IsAbs(auth.TokenFile) {
+				auth.TokenFile = filepath.Join(baseDir, auth.TokenFile)
+			}
+		}
+		specs = append(specs, TargetSpec{
+			Name: strings.TrimSpace(t.Name),
+			URL:  strings.TrimSpace(t.URL),
+			Auth: auth,
+			TLS:  t.TLS,
+		})
+	}
+	return specs, nil
+}
+
+type configFieldError struct {
+	Path    string
+	Message string
+}
+
+func decodeTargetsConfig(absPath string, b []byte) (*TargetsConfig, string, error) {
+	ext := strings.ToLower(filepath.Ext(absPath))
+	cfg := &TargetsConfig{}
+
+	switch ext {
+	case ".json":
+		if err := decodeTargetsConfigJSON(b, cfg); err != nil {
+			return nil, "", fmt.Errorf("failed to parse JSON: %s", err.Error())
+		}
+	case ".yml", ".yaml":
+		if err := decodeTargetsConfigYAML(b, cfg); err != nil {
+			return nil, "", fmt.Errorf("failed to parse YAML: %s", err.Error())
+		}
+	default:
+		// If extension is unknown, try JSON then YAML for convenience.
+		if err := decodeTargetsConfigJSON(b, cfg); err != nil {
+			cfg = &TargetsConfig{}
+			if err2 := decodeTargetsConfigYAML(b, cfg); err2 != nil {
+				return nil, "", fmt.Errorf("unsupported config extension %q; JSON error: %s; YAML error: %s", ext, err.Error(), err2.Error())
+			}
+		}
+	}
+
+	return cfg, filepath.Dir(absPath), nil
+}
+
+func decodeTargetsConfigJSON(b []byte, out *TargetsConfig) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out); err != nil {
+		return formatJSONDecodeError(err)
+	}
+	// Ensure there is no trailing data.
+	var extra any
+	if err := dec.Decode(&extra); err == nil {
+		return fmt.Errorf("unexpected trailing JSON data")
+	} else if !errors.Is(err, io.EOF) {
+		return formatJSONDecodeError(err)
+	}
+	return nil
+}
+
+func decodeTargetsConfigYAML(b []byte, out *TargetsConfig) error {
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	// Prevent multiple YAML documents (--- ... ---).
+	var extra any
+	if err := dec.Decode(&extra); err == nil {
+		return fmt.Errorf("multiple YAML documents are not supported")
+	} else if !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+
+func formatJSONDecodeError(err error) error {
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return fmt.Errorf("syntax error near byte offset %d", syntaxErr.Offset)
+	}
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		if typeErr.Field != "" {
+			return fmt.Errorf("invalid type for field %q near byte offset %d", typeErr.Field, typeErr.Offset)
+		}
+		return fmt.Errorf("invalid JSON type near byte offset %d", typeErr.Offset)
+	}
+	return err
+}
+
+func validateTargetsConfig(cfg *TargetsConfig) []configFieldError {
+	errs := []configFieldError{}
+	if cfg == nil {
+		return []configFieldError{{Path: "", Message: "config is empty"}}
+	}
+	if len(cfg.Targets) == 0 {
+		errs = append(errs, configFieldError{Path: "targets", Message: "must contain at least one entry"})
+		return errs
+	}
+	for i, t := range cfg.Targets {
+		p := fmt.Sprintf("targets[%d]", i)
+		if strings.TrimSpace(t.URL) == "" {
+			errs = append(errs, configFieldError{Path: p + ".url", Message: "is required"})
+			continue
+		}
+		u, err := url.Parse(strings.TrimSpace(t.URL))
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			errs = append(errs, configFieldError{Path: p + ".url", Message: "must be a valid absolute URL (scheme + host)"})
+		} else if u.User != nil {
+			errs = append(errs, configFieldError{Path: p + ".url", Message: "must not include credentials (userinfo); use auth.* instead"})
+		}
+
+		if t.Auth == nil {
+			continue
+		}
+
+		mode := authModeFromConfig(t.Auth.Type, t.Auth.Username, t.Auth.Password, t.Auth.PasswordFile, t.Auth.Token, t.Auth.TokenFile)
+		switch mode {
+		case "":
+			// empty auth block treated as no auth
+		case "basic":
+			if strings.TrimSpace(t.Auth.Username) == "" {
+				errs = append(errs, configFieldError{Path: p + ".auth.username", Message: "is required for basic auth"})
+			}
+			if strings.TrimSpace(t.Auth.Password) == "" && strings.TrimSpace(t.Auth.PasswordFile) == "" {
+				errs = append(errs, configFieldError{Path: p + ".auth.password", Message: "password or password_file is required for basic auth"})
+			}
+		case "bearer":
+			if strings.TrimSpace(t.Auth.Token) == "" && strings.TrimSpace(t.Auth.TokenFile) == "" {
+				errs = append(errs, configFieldError{Path: p + ".auth.token", Message: "token or token_file is required for bearer auth"})
+			}
+		default:
+			errs = append(errs, configFieldError{Path: p + ".auth.type", Message: fmt.Sprintf("unsupported value %q (supported: basic, bearer)", t.Auth.Type)})
+		}
+	}
+	return errs
+}
+
+func formatConfigValidationError(absPath string, errs []configFieldError) error {
+	lines := make([]string, 0, len(errs))
+	for _, e := range errs {
+		if e.Path == "" {
+			lines = append(lines, "- "+e.Message)
+		} else {
+			lines = append(lines, fmt.Sprintf("- %s: %s", e.Path, e.Message))
+		}
+	}
+	return fmt.Errorf("invalid targets config %q:\n%s", absPath, strings.Join(lines, "\n"))
 }
 
 func getMetricFamilies(sourceData io.Reader) (map[string]*io_prometheus_client.MetricFamily, error) {

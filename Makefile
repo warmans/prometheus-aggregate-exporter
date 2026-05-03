@@ -65,6 +65,10 @@ test.unregister:
 test.register:
 	curl -X POST -H "Content-Type: application/x-www-form-urlencoded" -d "name=t1&address=localhost:3000/histogram.txt" localhost:8080/register
 
+.PHONY: test.auth
+test.auth: build
+	./scripts/test-auth.sh
+
 # Packaging
 #-----------------------------------------------------------------------
 
