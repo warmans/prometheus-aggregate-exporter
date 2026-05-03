@@ -173,6 +173,7 @@ Advanced auth/TLS configuration is config-file only. Use `-targets.config`:
 ```
 
 Targets defined via `-targets` continue to work as before. When `-targets.config` is set, targets from the config are included alongside `-targets` and dynamically registered targets.
+If the same target URL is defined both in config and in `-targets`, config entry has priority (flag duplicate is skipped).
 Use `tls.insecure_skip_verify: true` only for the specific targets that need it.
 Targets with embedded credentials like `https://user:password@host/path` are rejected (fail-fast). Use config `auth` settings instead.
 

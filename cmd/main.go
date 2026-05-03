@@ -146,8 +146,7 @@ func main() {
 			http.Error(rw, "Bad Request", http.StatusBadRequest)
 			return
 		}
-		allSpecs := append([]TargetSpec{}, configTargets...)
-		allSpecs = append(allSpecs, targetSpecsFromStrings(targets.Targets())...)
+		allSpecs := mergeTargetSpecs(configTargets, targetSpecsFromStrings(targets.Targets()))
 
 		if t := r.Form.Get("t"); t != "" {
 			targetKey, err := strconv.Atoi(t)
@@ -693,6 +692,31 @@ func targetSpecsFromStrings(targets []string) []TargetSpec {
 		specs = append(specs, TargetSpec{Name: name, URL: targetURL, Auth: nil})
 	}
 	return specs
+}
+
+func mergeTargetSpecs(configTargets []TargetSpec, otherTargets []TargetSpec) []TargetSpec {
+	merged := append([]TargetSpec{}, configTargets...)
+	seen := map[string]struct{}{}
+
+	for _, t := range configTargets {
+		seen[targetDedupKey(t)] = struct{}{}
+	}
+
+	for _, t := range otherTargets {
+		key := targetDedupKey(t)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, t)
+	}
+
+	return merged
+}
+
+func targetDedupKey(t TargetSpec) string {
+	// URL is the primary identity of a target across config and flag-based inputs.
+	return strings.TrimSpace(t.URL)
 }
 
 func loadTargetsConfig(configPath string) ([]TargetSpec, error) {
