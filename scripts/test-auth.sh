@@ -124,29 +124,7 @@ sleep 1
 curl -s "localhost:$FAILFAST_PORT/metrics" > "$BUILD_DIR/test-auth-failfast.metrics"
 awk '/credentials in target URL are not allowed/ { found=1 } END { exit(found ? 0 : 1) }' "$BUILD_DIR/test-auth-failfast.log"
 
-# 2) Basic auth via flags should succeed
-./bin/prometheus-aggregate-exporter \
-  -targets="secure=http://localhost:$FIXTURE_PORT/histogram.txt" \
-  -server.bind=":$BASIC_PORT" \
-  -targets.auth.username="prometheus_scraper" \
-  -targets.auth.password_file="$BUILD_DIR/test-auth-password.txt" \
-  -verbose=true > "$BUILD_DIR/test-auth-success.log" 2>&1 & echo $! > "$BUILD_DIR/test-auth-success.pid"
-sleep 1
-curl -s "localhost:$BASIC_PORT/metrics" > "$BUILD_DIR/test-auth-success.metrics"
-awk '/^http_requests_total\{.*ae_source="secure"/ { found=1 } END { exit(found ? 0 : 1) }' "$BUILD_DIR/test-auth-success.metrics"
-
-# 3) Bearer auth via flags should succeed
-./bin/prometheus-aggregate-exporter \
-  -targets="secure=http://localhost:$FIXTURE_PORT/histogram.txt" \
-  -server.bind=":$BEARER_PORT" \
-  -targets.auth.type="bearer" \
-  -targets.auth.token_file="$BUILD_DIR/test-auth-token.txt" \
-  -verbose=true > "$BUILD_DIR/test-auth-bearer.log" 2>&1 & echo $! > "$BUILD_DIR/test-auth-bearer.pid"
-sleep 1
-curl -s "localhost:$BEARER_PORT/metrics" > "$BUILD_DIR/test-auth-bearer.metrics"
-awk '/^http_requests_total\{.*ae_source="secure"/ { found=1 } END { exit(found ? 0 : 1) }' "$BUILD_DIR/test-auth-bearer.metrics"
-
-# 4) Per-target auth via -targets.config should work (basic + bearer) and allow no-auth target
+# 2) Per-target auth via -targets.config should work (basic + bearer) and allow no-auth target
 ./bin/prometheus-aggregate-exporter \
   -targets.config="$BUILD_DIR/test-targets-config.json" \
   -server.bind=":$CONFIG_JSON_PORT" \
@@ -157,7 +135,7 @@ awk '/^http_requests_total\{.*ae_source="secure_basic"/ { found=1 } END { exit(f
 awk '/^http_requests_total\{.*ae_source="secure_bearer"/ { found=1 } END { exit(found ? 0 : 1) }' "$BUILD_DIR/test-auth-config.metrics"
 awk '/failed to fetch URL .* due to status code: 401/ { found=1 } END { exit(found ? 0 : 1) }' "$BUILD_DIR/test-auth-config.log"
 
-# 5) YAML config should be accepted as well
+# 3) YAML config should be accepted as well
 ./bin/prometheus-aggregate-exporter \
   -targets.config="$BUILD_DIR/test-targets-config.yaml" \
   -server.bind=":$CONFIG_YAML_PORT" \
